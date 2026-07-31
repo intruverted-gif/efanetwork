@@ -20,20 +20,22 @@ export default async function handler(req, res) {
   try {
     const { matchId, homeTeam, awayTeam, season } = req.body;
     
-    const currentSeason = season ? String(season).toLowerCase().trim() : 'season 3';
+    const rawSeason = season ? String(season).toLowerCase().trim() : 'season 3';
+    const currentSeason = rawSeason.includes('3') ? 'season 3' : rawSeason;
+    
     const rows = [];
     const playerDirectory = new Map();
 
     const processTeam = (teamData) => {
-      const teamName = teamData?.name || '';
+      const teamName = teamData?.name || teamData?.teamName || teamData?.title || 'Unknown Team';
       const players = teamData?.players || [];
 
       for (const player of players) {
         const userId = Number(player.robloxId) || 0;
         const displayName = player.name || 'Unknown';
         
-        const headshotUrl = userId 
-          ? `https://www.roblox.com/headshot-thumbnail/image?userId=${userId}&width=150&height=150&format=png`
+        const headshotUrl = userId > 0 
+          ? `https://tr.rbxcdn.com/30DAY-AvatarHeadshot-${userId}-150x150-Png/150/150/AvatarHeadshot/Png`
           : '';
 
         if (userId > 0) {
@@ -51,7 +53,14 @@ export default async function handler(req, res) {
         const rec = player.receiving || {};
         const def = player.defense || {};
 
-        if (Number(pass.attempts) > 0 || Number(pass.completions) > 0 || Number(pass.yards) !== 0) {
+        const passComp = Number(pass.completions) || 0;
+        const passAtt = Number(pass.attempts) || 0;
+        const passYds = Number(pass.yards) || 0;
+        const passTds = Number(pass.tds) || 0;
+        const passInts = Number(pass.ints) || Number(pass.interceptions) || 0;
+        const passSck = Number(pass.sacked) || 0;
+
+        if (passComp > 0 || passAtt > 0 || passYds > 0 || passTds > 0 || passInts > 0) {
           rows.push({
             user_id: userId,
             display_name: displayName,
@@ -59,12 +68,12 @@ export default async function handler(req, res) {
             headshot_url: headshotUrl,
             category: 'passing',
             season: currentSeason,
-            completions: Number(pass.completions) || 0,
-            attempts: Number(pass.attempts) || 0,
-            yards: Number(pass.yards) || 0,
-            tds: Number(pass.tds) || 0,
-            sacked: Number(pass.sacked) || 0,
-            interceptions: Number(pass.ints) || 0,
+            completions: passComp,
+            attempts: passAtt,
+            yards: passYds,
+            tds: passTds,
+            sacked: passSck,
+            interceptions: passInts,
             carries: 0,
             receptions: 0,
             tackles: 0,
@@ -72,7 +81,11 @@ export default async function handler(req, res) {
           });
         }
 
-        if (Number(rush.carries) > 0 || Number(rush.yards) !== 0) {
+        const rushCar = Number(rush.carries) || 0;
+        const rushYds = Number(rush.yards) || 0;
+        const rushTds = Number(rush.tds) || 0;
+
+        if (rushCar > 0 || rushYds > 0 || rushTds > 0) {
           rows.push({
             user_id: userId,
             display_name: displayName,
@@ -80,9 +93,9 @@ export default async function handler(req, res) {
             headshot_url: headshotUrl,
             category: 'rushing',
             season: currentSeason,
-            carries: Number(rush.carries) || 0,
-            yards: Number(rush.yards) || 0,
-            tds: Number(rush.tds) || 0,
+            carries: rushCar,
+            yards: rushYds,
+            tds: rushTds,
             completions: 0,
             attempts: 0,
             sacked: 0,
@@ -93,7 +106,11 @@ export default async function handler(req, res) {
           });
         }
 
-        if (Number(rec.receptions) > 0 || Number(rec.yards) !== 0) {
+        const recRec = Number(rec.receptions) || 0;
+        const recYds = Number(rec.yards) || 0;
+        const recTds = Number(rec.tds) || 0;
+
+        if (recRec > 0 || recYds > 0 || recTds > 0) {
           rows.push({
             user_id: userId,
             display_name: displayName,
@@ -101,9 +118,9 @@ export default async function handler(req, res) {
             headshot_url: headshotUrl,
             category: 'receiving',
             season: currentSeason,
-            receptions: Number(rec.receptions) || 0,
-            yards: Number(rec.yards) || 0,
-            tds: Number(rec.tds) || 0,
+            receptions: recRec,
+            yards: recYds,
+            tds: recTds,
             completions: 0,
             attempts: 0,
             sacked: 0,
@@ -114,7 +131,11 @@ export default async function handler(req, res) {
           });
         }
 
-        if (Number(def.tackles) > 0 || Number(def.sacks) > 0 || Number(def.interceptions) > 0) {
+        const defTkl = Number(def.tackles) || 0;
+        const defSck = Number(def.sacks) || 0;
+        const defInt = Number(def.interceptions) || 0;
+
+        if (defTkl > 0 || defSck > 0 || defInt > 0) {
           rows.push({
             user_id: userId,
             display_name: displayName,
@@ -122,9 +143,9 @@ export default async function handler(req, res) {
             headshot_url: headshotUrl,
             category: 'defense',
             season: currentSeason,
-            tackles: Number(def.tackles) || 0,
-            sacks: Number(def.sacks) || 0,
-            interceptions: Number(def.interceptions) || 0,
+            tackles: defTkl,
+            sacks: defSck,
+            interceptions: defInt,
             completions: 0,
             attempts: 0,
             yards: 0,
