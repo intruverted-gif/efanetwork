@@ -3,6 +3,7 @@ import { useParams, Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { TEAMS } from '../data/schedule';
 import { getAwardsForPlayer, getRingsForPlayer } from '../data/legacyAwards';
+import { supabase } from '../lib/supabase';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,40 +133,65 @@ function DefenseRow({ d }: { d: NonNullable<GameEntry['defense']> }) {
 export default function PlayerProfile() {
   const params = useParams<{ userId: string }>();
   const userId = params.userId;
+  const id = userId ?? '';
+
+  console.log('[PlayerProfile] RENDER TRIGGERED with params:', id);
 
   const { data, isLoading, isError } = useQuery<PlayerProfile | null>({
-    queryKey: ['player', userId],
+    queryKey: ['player', id],
     queryFn: async () => {
-      console.log('[PlayerProfile] fetching player profile', { userId });
-      const res = await fetch(`/api/players/${userId}`);
-      console.log('[PlayerProfile] response', { userId, status: res.status, ok: res.ok });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        console.error('[PlayerProfile] fetch failed', { userId, status: res.status, body });
-        throw new Error('Not found');
-      }
-      const payload = await res.json();
-      console.log('[PlayerProfile] parsed data:', payload);
+      const { data, error } = await supabase
+        .from('player_stats')
+        .select('*')
+        .or(`user_id.eq.${id},user_id.eq.${Number(id)}`);
 
-      if (payload === null || payload === undefined || payload === '') {
+      console.log('[PlayerProfile] DIRECT SUPABASE DATA:', data, error);
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
         return null;
       }
 
-      if (typeof payload === 'object' && 'player' in payload && payload.player) {
-        return payload.player as PlayerProfile;
-      }
+      const first = data[0] as Record<string, any>;
+      const aggregated: CareerTotals = {
+        gamesPlayed: data.length,
+        passing: {
+          completions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.completions ?? 0), 0),
+          attempts: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.attempts ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+          ints: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.ints ?? 0), 0),
+        },
+        rushing: {
+          carries: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.carries ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+        },
+        receiving: {
+          receptions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.receptions ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+        },
+        defense: {
+          tackles: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tackles ?? 0), 0),
+          interceptions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.interceptions ?? 0), 0),
+          sacks: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.sacks ?? 0), 0),
+        },
+      };
 
-      if (typeof payload === 'object' && 'stats' in payload && Array.isArray(payload.stats)) {
-        return payload as PlayerProfile;
-      }
-
-      if (Array.isArray(payload)) {
-        return payload[0] as PlayerProfile;
-      }
-
-      return payload as PlayerProfile;
+      return {
+        userId: Number(id),
+        displayName: first.display_name ?? 'Unknown Player',
+        headshotUrl: first.headshot_url ?? null,
+        teamName: first.team_name ?? null,
+        careerTotals: aggregated,
+        games: [],
+      } as PlayerProfile;
     },
-    enabled: !!userId,
+    enabled: !!id,
   });
 
   const team = useMemo(() => fuzzyTeam(data?.teamName ?? null), [data?.teamName]);
