@@ -146,6 +146,7 @@ export default function PlayerProfile() {
         .or(`user_id.eq.${id},user_id.eq.${Number(id)}`);
 
       console.log('[PlayerProfile] DIRECT SUPABASE DATA:', data, error);
+      console.log('[PlayerProfile] FULL RAW DB ROWS:', JSON.stringify(data, null, 2));
 
       if (error) {
         throw error;
@@ -178,6 +179,28 @@ export default function PlayerProfile() {
       const sumFromRows = (rows: Record<string, any>[], keys: string[]) => {
         return rows.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, keys), 0);
       };
+
+      let totalRushYards = 0;
+      let totalRushCarries = 0;
+
+      data.forEach((row: Record<string, any>) => {
+        const rushYdsKey = Object.keys(row).find((k) =>
+          ['rush_yds', 'rush_yards', 'rushing_yards', 'rushing_yds'].includes(k.toLowerCase())
+        );
+        const carryKey = Object.keys(row).find((k) =>
+          ['carries', 'rush_carries', 'car', 'att', 'attempts'].includes(k.toLowerCase()) && !k.includes('pass')
+        );
+
+        if (rushYdsKey && row[rushYdsKey] !== undefined) {
+          totalRushYards += Number(row[rushYdsKey]) || 0;
+        }
+
+        if (carryKey && row[carryKey] !== undefined) {
+          totalRushCarries += Number(row[carryKey]) || 0;
+        }
+      });
+
+      const rushAvg = totalRushCarries > 0 ? (totalRushYards / totalRushCarries).toFixed(1) : '0.0';
 
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
@@ -465,7 +488,7 @@ export default function PlayerProfile() {
                     <div className="pp-career-cell"><span className="pp-career-num">{ct.rushing.carries}</span><span className="pp-career-lbl">CAR</span></div>
                     <div className="pp-career-cell">
                       <span className="pp-career-num">
-                        {ct.rushing.carries > 0 ? (ct.rushing.yards / ct.rushing.carries).toFixed(1) : '0.0'}
+                        {rushAvg}
                       </span>
                       <span className="pp-career-lbl">AVG</span>
                     </div>
