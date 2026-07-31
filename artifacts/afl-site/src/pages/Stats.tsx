@@ -93,7 +93,10 @@ export default function Stats() {
         .eq('category', category);
 
       if (season !== 'all') {
-        query = query.eq('season', season);
+        const seasonMatches = [season, String(season), `SEASON ${season}`.toUpperCase()];
+        query = query.or(
+          `season.eq.${season},season.eq.${String(season)},season.ilike.%${String(season).toLowerCase()}%`
+        );
       }
 
       const { data: rows, error } = await query;

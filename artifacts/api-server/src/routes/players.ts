@@ -27,18 +27,19 @@ router.get('/players/:userId', async (req, res) => {
       return;
     }
 
-    // 1. Player base record (check both user_id and id columns)
-    const { data: player, error: playerError } = await supabase
-      .from('players')
-      .select('id, user_id, display_name, headshot_url')
-      .or(`user_id.eq.${userId},id.eq.${userId}`)
-      .limit(1)
-      .maybeSingle();
+    // 1. Player stats rows for this user (use the available player_stats table)
+    const { data: playerRows, error: playerError } = await supabase
+      .from('player_stats')
+      .select('user_id, display_name, headshot_url, category, season, team_name, completions, attempts, yards, tds, ints, carries, receptions, tackles, interceptions, sacks')
+      .eq('user_id', userId)
+      .limit(50);
 
-    if (playerError || !player) {
+    if (playerError || !playerRows || playerRows.length === 0) {
       res.status(404).json({ error: 'Player not found' });
       return;
     }
+
+    const player = playerRows[0];
 
     // 2. All games for this player (ordered newest first)
     const gamesRes = await pool.query(`
@@ -136,12 +137,8 @@ router.get('/players/:userId', async (req, res) => {
       },
     };
 
-    const resolvedUserId = typeof player.user_id === 'number'
-      ? player.user_id
-      : (typeof player.id === 'number' ? player.id : userId);
-
     res.json({
-      userId: resolvedUserId,
+      userId: userId,
       displayName: player.display_name,
       headshotUrl: player.headshot_url,
       teamName,
