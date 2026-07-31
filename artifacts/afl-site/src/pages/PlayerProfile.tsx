@@ -156,6 +156,7 @@ export default function PlayerProfile() {
       }
 
       const first = data[0] as Record<string, any>;
+      console.log('[PlayerProfile] Raw DB Row Keys:', Object.keys(first ?? {}));
       console.log('[PlayerProfile] AVAILABLE PLAYER_STATS KEYS:', Object.keys(first ?? {}));
 
       const sumNumeric = (row: Record<string, any>, keys: string[]) => {
@@ -201,7 +202,14 @@ export default function PlayerProfile() {
             return sum + (Number.isNaN(rushCarries) ? 0 : rushCarries);
           }, 0),
           yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushYds = Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? 0);
+            const rushYds = Number(
+              row.rush_yds ??
+              row.rush_yards ??
+              row.rushing_yards ??
+              row.rushing_yds ??
+              row.rushYards ??
+              0
+            );
             return sum + (Number.isNaN(rushYds) ? 0 : rushYds);
           }, 0),
           tds: data.reduce((sum: number, row: Record<string, any>) => {
