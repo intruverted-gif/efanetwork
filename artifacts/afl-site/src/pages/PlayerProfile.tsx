@@ -66,10 +66,8 @@ function derivePosition(ct: CareerTotals): string {
 
 /** Format a matchId/date into a compact label. */
 function gameLabel(matchId: string, exportedAt: string): string {
-  // Try to extract week from matchId like "s3w2g1" or "week2_..."
   const wkMatch = matchId.match(/w(?:ee?k?)?[\-_]?(\d+)/i);
   if (wkMatch) return `WK ${wkMatch[1]}`;
-  // Fallback: short date
   const d = new Date(exportedAt);
   return isNaN(d.getTime()) ? matchId.slice(0, 8) : `${d.getMonth() + 1}/${d.getDate()}`;
 }
@@ -160,26 +158,6 @@ export default function PlayerProfile() {
       console.log('[PlayerProfile] Raw DB Row Keys:', Object.keys(first ?? {}));
       console.log('[PlayerProfile] AVAILABLE PLAYER_STATS KEYS:', Object.keys(first ?? {}));
 
-      const sumNumeric = (row: Record<string, any>, keys: string[]) => {
-        for (const key of keys) {
-          const rawValue = row[key];
-          if (rawValue === null || rawValue === undefined || rawValue === '') {
-            continue;
-          }
-
-          const numericValue = Number(rawValue);
-          if (!Number.isNaN(numericValue)) {
-            return numericValue;
-          }
-        }
-
-        return 0;
-      };
-
-      const sumFromRows = (rows: Record<string, any>[], keys: string[]) => {
-        return rows.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, keys), 0);
-      };
-
       let passYds = 0;
       let passTds = 0;
       let completions = 0;
@@ -193,8 +171,8 @@ export default function PlayerProfile() {
       let sacks = 0;
 
       (data || []).forEach((row: Record<string, any>) => {
-        passYds += Number(row.pass_yds ?? row.passing_yards ?? row.pass_yards ?? 0);
-        passTds += Number(row.pass_tds ?? row.passing_tds ?? row.pass_td ?? 0);
+        passYds += Number(row.yards ?? row.pass_yds ?? row.passing_yards ?? row.pass_yards ?? 0);
+        passTds += Number(row.pass_tds ?? row.passing_tds ?? row.pass_td ?? row.tds ?? 0);
         completions += Number(row.completions ?? row.comp ?? 0);
         attempts += Number(row.attempts ?? row.att ?? 0);
         passInts += Number(row.interceptions ?? row.pass_int ?? row.int ?? 0);
@@ -207,8 +185,6 @@ export default function PlayerProfile() {
         defInts += Number(row.def_ints ?? row.def_int ?? row.interceptions ?? 0);
         sacks += Number(row.sacks ?? row.sck ?? 0);
       });
-
-      const rushAvg = carries > 0 ? (rushYds / carries).toFixed(1) : '0.0';
 
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
