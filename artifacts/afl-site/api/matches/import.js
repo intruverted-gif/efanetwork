@@ -32,23 +32,18 @@ export default async function handler(req, res) {
         player_name: player.name,
         roblox_id: player.robloxId || null,
         
-        pass_completions: player.passing?.completions || 0,
-        pass_attempts: player.passing?.attempts || 0,
-        pass_yards: player.passing?.yards || 0,
-        pass_tds: player.passing?.tds || 0,
-        pass_ints: player.passing?.ints || 0,
+        // Exact schema match
+        completions: player.passing?.completions || 0,
+        attempts: player.passing?.attempts || 0,
+        yards: (player.passing?.yards || 0) + (player.rushing?.yards || 0) + (player.receiving?.yards || 0),
+        tds: (player.passing?.tds || 0) + (player.rushing?.tds || 0) + (player.receiving?.tds || 0),
         sacked: player.passing?.sacked || 0,
 
-        rush_carries: player.rushing?.carries || 0,
-        rush_yards: player.rushing?.yards || 0,
-        rush_tds: player.rushing?.tds || 0,
+        carries: player.rushing?.carries || 0,
+        receptions: player.receiving?.receptions || 0,
 
-        rec_receptions: player.receiving?.receptions || 0,
-        rec_yards: player.receiving?.yards || 0,
-        rec_tds: player.receiving?.tds || 0,
-
-        def_tackles: player.defense?.tackles || 0,
-        def_sacks: player.defense?.sacks || 0,
+        tackles: player.defense?.tackles || 0,
+        sacks: player.defense?.sacks || 0,
         interceptions: player.defense?.interceptions || 0,
       });
     }
