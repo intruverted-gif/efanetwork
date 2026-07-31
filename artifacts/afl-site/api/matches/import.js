@@ -21,32 +21,35 @@ export default async function handler(req, res) {
     const { matchId, homeTeam, awayTeam } = req.body;
 
     const rows = [];
-    const allPlayers = [
-      ...(homeTeam.players || []),
-      ...(awayTeam.players || [])
-    ];
 
-    for (const player of allPlayers) {
-      rows.push({
-        match_id: matchId,
-        player_name: player.name,
-        roblox_id: player.robloxId || null,
-        
-        // Exact schema match
-        completions: player.passing?.completions || 0,
-        attempts: player.passing?.attempts || 0,
-        yards: (player.passing?.yards || 0) + (player.rushing?.yards || 0) + (player.receiving?.yards || 0),
-        tds: (player.passing?.tds || 0) + (player.rushing?.tds || 0) + (player.receiving?.tds || 0),
-        sacked: player.passing?.sacked || 0,
+    const processTeam = (teamData) => {
+      const teamName = teamData.name || '';
+      const players = teamData.players || [];
 
-        carries: player.rushing?.carries || 0,
-        receptions: player.receiving?.receptions || 0,
+      for (const player of players) {
+        rows.push({
+          user_id: player.robloxId || 0,
+          display_name: player.name || '',
+          team_name: teamName,
+          
+          completions: player.passing?.completions || 0,
+          attempts: player.passing?.attempts || 0,
+          yards: (player.passing?.yards || 0) + (player.rushing?.yards || 0) + (player.receiving?.yards || 0),
+          tds: (player.passing?.tds || 0) + (player.rushing?.tds || 0) + (player.receiving?.tds || 0),
+          sacked: player.passing?.sacked || 0,
 
-        tackles: player.defense?.tackles || 0,
-        sacks: player.defense?.sacks || 0,
-        interceptions: player.defense?.interceptions || 0,
-      });
-    }
+          carries: player.rushing?.carries || 0,
+          receptions: player.receiving?.receptions || 0,
+
+          tackles: player.defense?.tackles || 0,
+          sacks: player.defense?.sacks || 0,
+          interceptions: player.defense?.interceptions || 0,
+        });
+      }
+    };
+
+    processTeam(homeTeam);
+    processTeam(awayTeam);
 
     const { data, error } = await supabase
       .from('player_stats')
