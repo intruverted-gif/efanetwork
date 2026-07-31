@@ -138,9 +138,9 @@ export default function Stats() {
 
   const SEASONS: { key: Season; label: string; corrupted?: boolean }[] = [
     { key: 'all', label: 'All-time' },
-    { key: '1', label: 'Season 1', corrupted: true },
-    { key: '2', label: 'Season 2', corrupted: true },
-    { key: '3', label: 'Season 3' },
+    { key: '1', label: 'SEASON 1', corrupted: true },
+    { key: '2', label: 'SEASON 2', corrupted: true },
+    { key: '3', label: 'SEASON 3' },
   ];
 
   const isCorrupted = season === '1' || season === '2';
@@ -182,7 +182,7 @@ export default function Stats() {
             <div className="stats-corrupted-icon">⚠</div>
             <div className="stats-corrupted-title">DATA CORRUPTED</div>
             <div className="stats-corrupted-sub">
-              Season {season} records were lost. Stats from this era are unrecoverable.
+              SEASON {season} records were lost. Stats from this era are unrecoverable.
             </div>
           </div>
         )}

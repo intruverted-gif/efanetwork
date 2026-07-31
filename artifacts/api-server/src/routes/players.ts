@@ -1,7 +1,15 @@
 import { Router, type IRouter } from 'express';
+import { createClient } from '@supabase/supabase-js';
 import { pool } from '@workspace/db';
 
 const router: IRouter = Router();
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+const supabase = supabaseUrl && supabaseKey
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
 
 // ── GET /api/players/:userId ─────────────────────────────────────────────────
 // Returns full player profile: info, career totals, and per-game log.
@@ -14,16 +22,23 @@ router.get('/players/:userId', async (req, res) => {
   }
 
   try {
-    // 1. Player base record
-    const playerRes = await pool.query(
-      'SELECT user_id, display_name, headshot_url FROM players WHERE user_id = $1',
-      [userId]
-    );
-    if (playerRes.rows.length === 0) {
+    if (!supabase) {
+      res.status(500).json({ error: 'Supabase configuration missing' });
+      return;
+    }
+
+    // 1. Player base record (check both user_id and id columns)
+    const { data: player, error: playerError } = await supabase
+      .from('players')
+      .select('id, user_id, display_name, headshot_url')
+      .or(`user_id.eq.${userId},id.eq.${userId}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (playerError || !player) {
       res.status(404).json({ error: 'Player not found' });
       return;
     }
-    const player = playerRes.rows[0];
 
     // 2. All games for this player (ordered newest first)
     const gamesRes = await pool.query(`
@@ -121,8 +136,12 @@ router.get('/players/:userId', async (req, res) => {
       },
     };
 
+    const resolvedUserId = typeof player.user_id === 'number'
+      ? player.user_id
+      : (typeof player.id === 'number' ? player.id : userId);
+
     res.json({
-      userId: player.user_id,
+      userId: resolvedUserId,
       displayName: player.display_name,
       headshotUrl: player.headshot_url,
       teamName,

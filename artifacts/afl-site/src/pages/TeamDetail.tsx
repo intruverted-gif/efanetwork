@@ -219,9 +219,9 @@ export default function TeamDetail() {
 
   const SEASONS: { key: Season; label: string; corrupted?: boolean }[] = [
     { key: 'all', label: 'All-time' },
-    { key: '1', label: 'S1', corrupted: true },
-    { key: '2', label: 'S2', corrupted: true },
-    { key: '3', label: 'S3' },
+    { key: '1', label: 'SEASON 1', corrupted: true },
+    { key: '2', label: 'SEASON 2', corrupted: true },
+    { key: '3', label: 'SEASON 3' },
   ];
 
   if (!team) {
@@ -316,7 +316,7 @@ export default function TeamDetail() {
               <div className="stats-corrupted">
                 <div className="stats-corrupted-icon">⚠</div>
                 <div className="stats-corrupted-title">DATA CORRUPTED</div>
-                <div className="stats-corrupted-sub">Season {season} records were lost. Stats from this era are unrecoverable.</div>
+                <div className="stats-corrupted-sub">SEASON {season} records were lost. Stats from this era are unrecoverable.</div>
               </div>
             ) : isLoading ? (
               <div className="stats-empty">Loading roster…</div>
