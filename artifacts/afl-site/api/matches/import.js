@@ -49,7 +49,7 @@ export default async function handler(req, res) {
 
         def_tackles: player.defense?.tackles || 0,
         def_sacks: player.defense?.sacks || 0,
-        def_ints: player.defense?.interceptions || 0,
+        interceptions: player.defense?.interceptions || 0,
       });
     }
 
