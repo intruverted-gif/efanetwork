@@ -48,7 +48,39 @@ router.get('/players/:userId', async (req, res) => {
     }
 
     const player = playerRows?.[0];
-    const statsRows = playerRows ?? [];
+    const groupedStatsRows = new Map<string, any>();
+    for (const row of playerRows ?? []) {
+      const key = `${row.user_id}:${row.category ?? 'unknown'}:${String(row.season ?? '').trim().toLowerCase()}`;
+      const existing = groupedStatsRows.get(key);
+      if (!existing) {
+        groupedStatsRows.set(key, {
+          ...row,
+          completions: Number(row.completions) || 0,
+          attempts: Number(row.attempts) || 0,
+          yards: Number(row.yards) || 0,
+          tds: Number(row.tds) || 0,
+          ints: Number(row.ints) || 0,
+          carries: Number(row.carries) || 0,
+          receptions: Number(row.receptions) || 0,
+          tackles: Number(row.tackles) || 0,
+          interceptions: Number(row.interceptions) || 0,
+          sacks: Number(row.sacks) || 0,
+        });
+      } else {
+        existing.completions += Number(row.completions) || 0;
+        existing.attempts += Number(row.attempts) || 0;
+        existing.yards += Number(row.yards) || 0;
+        existing.tds += Number(row.tds) || 0;
+        existing.ints += Number(row.ints) || 0;
+        existing.carries += Number(row.carries) || 0;
+        existing.receptions += Number(row.receptions) || 0;
+        existing.tackles += Number(row.tackles) || 0;
+        existing.interceptions += Number(row.interceptions) || 0;
+        existing.sacks += Number(row.sacks) || 0;
+        existing.team_name = row.team_name || existing.team_name;
+      }
+    }
+    const statsRows = Array.from(groupedStatsRows.values());
 
     if (!player || statsRows.length === 0) {
       res.status(404).json({ error: 'Player not found' });

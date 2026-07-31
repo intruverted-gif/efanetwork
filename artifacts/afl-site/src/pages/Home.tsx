@@ -103,35 +103,43 @@ export default function Home() {
   });
 
   const awardPlayers = useMemo<AwardPlayer[]>(() => {
-    if (!awResults.every(r => r.data)) return [];
+    const validResults = awResults.filter((result): result is typeof result & { data: { category: string; players: PlayerRow[] } } => Boolean(result.data));
+    if (validResults.length === 0) return [];
+
     const n = (v: unknown) => Number(v) || 0;
     const map = new Map<number, AwardPlayer>();
 
-    for (const result of awResults) {
-      if (!result.data) continue;
+    for (const result of validResults) {
       const { category, players } = result.data;
       for (const p of players) {
+        const userId = Number(p.user_id);
+        if (!Number.isFinite(userId)) continue;
+
         let raw = 0;
         let pos = '';
         if (category === 'passing') {
-          raw = n(p.yards)*0.06 + n(p.tds)*10 + n(p.completions)*0.4 - n(p.ints)*5;
+          raw = n(p.yards) * 0.06 + n(p.tds) * 10 + n(p.completions) * 0.4 - n(p.ints) * 5;
           pos = 'QB';
         } else if (category === 'rushing') {
-          raw = n(p.yards)*0.12 + n(p.tds)*10 + n(p.carries)*0.5;
+          raw = n(p.yards) * 0.12 + n(p.tds) * 10 + n(p.carries) * 0.5;
           pos = 'RB';
         } else if (category === 'receiving') {
-          raw = n(p.yards)*0.12 + n(p.tds)*10 + n(p.receptions)*2;
+          raw = n(p.yards) * 0.12 + n(p.tds) * 10 + n(p.receptions) * 2;
           pos = 'WR';
         } else {
-          raw = n(p.tackles)*2.5 + n(p.interceptions)*10 + n(p.sacks)*6;
+          raw = n(p.tackles) * 2.5 + n(p.interceptions) * 10 + n(p.sacks) * 6;
           pos = 'DEF';
         }
-        const existing = map.get(p.user_id);
+
+        const existing = map.get(userId);
         if (!existing || raw > existing.impact) {
-          map.set(p.user_id, {
-            userId: p.user_id, name: p.display_name,
-            headshotUrl: p.headshot_url, teamName: p.team_name,
-            position: pos, impact: raw,
+          map.set(userId, {
+            userId,
+            name: p.display_name,
+            headshotUrl: p.headshot_url,
+            teamName: p.team_name,
+            position: pos,
+            impact: raw,
           });
         }
       }
@@ -139,7 +147,7 @@ export default function Home() {
 
     const sorted = [...map.values()].sort((a, b) => b.impact - a.impact);
     const maxImpact = sorted[0]?.impact || 1;
-    return sorted.slice(0, 10).map(p => ({
+    return sorted.slice(0, 10).map((p) => ({
       ...p,
       impact: Math.min(99.9, (p.impact / maxImpact) * 99),
     }));
