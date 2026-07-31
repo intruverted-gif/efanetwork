@@ -156,24 +156,40 @@ export default function PlayerProfile() {
       }
 
       const first = data[0] as Record<string, any>;
+      const sumNumeric = (row: Record<string, any>, keys: string[]) => {
+        for (const key of keys) {
+          const rawValue = row[key];
+          if (rawValue === null || rawValue === undefined || rawValue === '') {
+            continue;
+          }
+
+          const numericValue = Number(rawValue);
+          if (!Number.isNaN(numericValue)) {
+            return numericValue;
+          }
+        }
+
+        return 0;
+      };
+
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
         passing: {
           completions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.completions ?? 0), 0),
           attempts: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.attempts ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['passing_yards', 'pass_yds', 'pass_yards']), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['passing_touchdowns', 'passing_tds', 'pass_tds']), 0),
           ints: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.ints ?? 0), 0),
         },
         rushing: {
           carries: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.carries ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['rushing_yards', 'rush_yds', 'rush_yards']), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['rushing_touchdowns', 'rushing_tds', 'rush_tds']), 0),
         },
         receiving: {
           receptions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.receptions ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.yards ?? 0), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tds ?? 0), 0),
+          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['receiving_yards', 'rec_yds', 'receiving_yards', 'rec_yards']), 0),
+          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['receiving_touchdowns', 'receiving_tds', 'rec_tds']), 0),
         },
         defense: {
           tackles: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tackles ?? 0), 0),
