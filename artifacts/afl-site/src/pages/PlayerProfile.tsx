@@ -180,54 +180,59 @@ export default function PlayerProfile() {
         return rows.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, keys), 0);
       };
 
+      let passYds = 0;
+      let passTds = 0;
+      let completions = 0;
+      let attempts = 0;
+      let passInts = 0;
+      let rushYds = 0;
+      let rushTds = 0;
+      let carries = 0;
+      let tackles = 0;
+      let defInts = 0;
+      let sacks = 0;
+
+      (data || []).forEach((row: Record<string, any>) => {
+        passYds += Number(row.pass_yds ?? row.passing_yards ?? row.pass_yards ?? 0);
+        passTds += Number(row.pass_tds ?? row.passing_tds ?? row.pass_td ?? 0);
+        completions += Number(row.completions ?? row.comp ?? 0);
+        attempts += Number(row.attempts ?? row.att ?? 0);
+        passInts += Number(row.interceptions ?? row.pass_int ?? row.int ?? 0);
+
+        rushYds += Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? 0);
+        rushTds += Number(row.rush_tds ?? row.rush_td ?? row.rushing_tds ?? 0);
+        carries += Number(row.carries ?? row.rush_carries ?? row.car ?? 0);
+
+        tackles += Number(row.tackles ?? row.tkl ?? 0);
+        defInts += Number(row.def_ints ?? row.def_int ?? row.interceptions ?? 0);
+        sacks += Number(row.sacks ?? row.sck ?? 0);
+      });
+
+      const rushAvg = carries > 0 ? (rushYds / carries).toFixed(1) : '0.0';
+
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
         passing: {
-          completions: sumFromRows(data, ['completions', 'comp', 'passing_completions', 'pass_completions', 'cmp']),
-          attempts: sumFromRows(data, ['attempts', 'att', 'passing_attempts', 'pass_attempts', 'pass_att']),
-          yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const passYards = row.pass_yds ?? row.passing_yards ?? row.pass_yards ?? row.yards ?? 0;
-            const numericValue = Number(passYards);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
-          }, 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => {
-            const passTds = row.pass_tds ?? row.passing_tds ?? row.pass_td ?? row.tds ?? 0;
-            const numericValue = Number(passTds);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
-          }, 0),
-          ints: sumFromRows(data, ['ints', 'int', 'interceptions', 'passing_interceptions']),
+          completions,
+          attempts,
+          yards: passYds,
+          tds: passTds,
+          ints: passInts,
         },
         rushing: {
-          carries: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushCarries = Number(row.carries) || 0;
-            return sum + (Number.isNaN(rushCarries) ? 0 : rushCarries);
-          }, 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushYds = Number(row.yards) || 0;
-            return sum + (Number.isNaN(rushYds) ? 0 : rushYds);
-          }, 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushTds = Number(row.tds) || 0;
-            return sum + (Number.isNaN(rushTds) ? 0 : rushTds);
-          }, 0),
+          carries,
+          yards: rushYds,
+          tds: rushTds,
         },
         receiving: {
-          receptions: sumFromRows(data, ['receptions', 'rec', 'receiving_receptions', 'rec_receptions']),
-          yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const recYards = row.rec_yds ?? row.receiving_yards ?? row.rec_yards ?? 0;
-            const numericValue = Number(recYards);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
-          }, 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => {
-            const recTds = row.rec_tds ?? row.receiving_tds ?? row.rec_td ?? 0;
-            const numericValue = Number(recTds);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
-          }, 0),
+          receptions: 0,
+          yards: 0,
+          tds: 0,
         },
         defense: {
-          tackles: sumFromRows(data, ['tackles', 'def_tackles', 'total_tackles']),
-          interceptions: sumFromRows(data, ['interceptions', 'ints', 'def_interceptions']),
-          sacks: sumFromRows(data, ['sacks', 'def_sacks']),
+          tackles,
+          interceptions: defInts,
+          sacks,
         },
       };
 
