@@ -1,0 +1,391 @@
+-- Stats Manager
+-- Place this Script in ServerScriptService.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+local GameData = ReplicatedStorage:WaitForChild("GameData")
+
+local HomeScore = GameData.Home.Score
+local AwayScore = GameData.Away.Score
+local HomeName = GameData.Home.Info.TeamName
+local AwayName = GameData.Away.Info.TeamName
+local HomeColor = GameData.Home.Info.PrimaryColor
+local AwayColor = GameData.Away.Info.PrimaryColor
+
+local RefAssistValue = GameData:WaitForChild("RefAssist")
+
+local StatRecordEvent = Events:WaitForChild("StatRecordEvent")
+local StatsRequestFunction = Events:WaitForChild("StatsRequestFunction")
+local EndEvent = Events:WaitForChild("End")
+
+local anyStatRecorded = false
+local refAssistEverEnabled = RefAssistValue.Value == true
+
+RefAssistValue:GetPropertyChangedSignal("Value"):Connect(function()
+	if RefAssistValue.Value == true then
+		refAssistEverEnabled = true
+	end
+end)
+
+local function generateMatchId()
+	local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	local id = {}
+	for i = 1, 6 do
+		local idx = math.random(1, #chars)
+		id[i] = chars:sub(idx, idx)
+	end
+	return table.concat(id)
+end
+
+local MATCH_ID = generateMatchId()
+
+local DISCORD_WEBHOOK_URL = "https://efastats.jbwatch4.workers.dev/api/webhooks/1529740030795583539/IdEsKo_7Nqck7knqStkZxymbdsgQ7fleIe8fQRs1LFsU2d6UbjAyXrBuucZq_pZwQXkP"
+
+local playerStats = {}
+local teamPenalties = {}
+
+-- Maps a raw Roblox team name (which includes the mascot, e.g. "Corner Canyon Chargers")
+-- to the GameData display name ("Corner Canyon") by checking if the display name
+-- is a substring of the full team name. Case-insensitive.
+local function resolveTeamName(rawTeam)
+	if not rawTeam or rawTeam == "" then return "Unknown" end
+	local lower = string.lower(rawTeam)
+	if string.find(lower, string.lower(HomeName.Value), 1, true) then
+		return HomeName.Value
+	elseif string.find(lower, string.lower(AwayName.Value), 1, true) then
+		return AwayName.Value
+	end
+	return rawTeam -- unknown team, store as-is
+end
+
+local function blankStatLine(player)
+	return {
+		name     = player.Name,
+		userId   = player.UserId,
+		teamName = resolveTeamName(player.Team and player.Team.Name or ""),
+		passing  = { attempts = 0, completions = 0, yards = 0, tds = 0, ints = 0, sacked = 0 },
+		rushing  = { carries = 0, yards = 0, tds = 0 },
+		receiving = { receptions = 0, yards = 0, tds = 0 },
+		defense  = { tackles = 0, interceptions = 0, sacks = 0 },
+	}
+end
+
+local function getEntry(player)
+	if not player then return nil end
+	local existing = playerStats[player.UserId]
+	if existing then return existing end
+	local entry = blankStatLine(player)
+	playerStats[player.UserId] = entry
+	return entry
+end
+
+local function getEntryByName(name)
+	local p = Players:FindFirstChild(name)
+	if p then return getEntry(p) end
+	for _, entry in pairs(playerStats) do
+		if entry.name == name then return entry end
+	end
+	return nil
+end
+
+-- When a player leaves, lock in their team name so it survives disconnect.
+-- If they rejoin, getEntry returns the existing entry (stats carry over).
+Players.PlayerRemoving:Connect(function(player)
+	local entry = playerStats[player.UserId]
+	if entry and entry.teamName == "Unknown" then
+		-- Last chance: try to resolve team before it's cleared
+		entry.teamName = resolveTeamName(player.Team and player.Team.Name or "")
+	end
+end)
+
+-- sign = 1 to add a play's contribution, -1 to reverse it (used by undo).
+-- Keeping add/subtract as one function means they can never drift apart.
+local function applyPlayRecord(data, sign)
+	if data.kind == "Incomplete" then
+		local e = getEntry(data.thrower)
+		if e then e.passing.attempts = e.passing.attempts + sign end
+		return
+	end
+
+	if data.wasIntercepted then
+		local passerEntry = getEntry(data.thrower)
+		if passerEntry then
+			passerEntry.passing.attempts = passerEntry.passing.attempts + sign
+			passerEntry.passing.ints = passerEntry.passing.ints + sign
+		end
+		local defenderEntry = getEntry(data.receiver)
+		if defenderEntry then
+			defenderEntry.defense.interceptions = defenderEntry.defense.interceptions + sign
+		end
+		return
+	end
+
+	if data.receiver then
+		local passerEntry = getEntry(data.thrower)
+		if passerEntry then
+			passerEntry.passing.attempts = passerEntry.passing.attempts + sign
+			passerEntry.passing.completions = passerEntry.passing.completions + sign
+			passerEntry.passing.yards = passerEntry.passing.yards + sign * data.yards
+			if data.isTouchdown then
+				passerEntry.passing.tds = passerEntry.passing.tds + sign
+			end
+		end
+		local receiverEntry = getEntry(data.receiver)
+		if receiverEntry then
+			receiverEntry.receiving.receptions = receiverEntry.receiving.receptions + sign
+			receiverEntry.receiving.yards = receiverEntry.receiving.yards + sign * data.yards
+			if data.isTouchdown then
+				receiverEntry.receiving.tds = receiverEntry.receiving.tds + sign
+			end
+		end
+	else
+		local runnerEntry = getEntry(data.thrower)
+		if runnerEntry then
+			runnerEntry.rushing.carries = runnerEntry.rushing.carries + sign
+			runnerEntry.rushing.yards = runnerEntry.rushing.yards + sign * data.yards
+			if data.isTouchdown then
+				runnerEntry.rushing.tds = runnerEntry.rushing.tds + sign
+			end
+		end
+	end
+
+	if data.kind == "Tackle" and data.tacklerName then
+		local tacklerEntry = getEntryByName(data.tacklerName)
+		if tacklerEntry then
+			if data.isSack then
+				tacklerEntry.defense.sacks = tacklerEntry.defense.sacks + sign
+			else
+				tacklerEntry.defense.tackles = tacklerEntry.defense.tackles + sign
+			end
+		end
+
+		if data.isSack then
+			local sackedEntry = getEntry(data.thrower)
+			if sackedEntry then
+				sackedEntry.passing.sacked = (sackedEntry.passing.sacked or 0) + sign
+			end
+		end
+	end
+end
+
+StatRecordEvent.Event:Connect(function(recordType, data)
+	if recordType == "play" then
+		anyStatRecorded = true
+		applyPlayRecord(data, 1)
+
+	elseif recordType == "undo_play" then
+		-- Fired by RefAssistUndoFunction with the exact same payload that was
+		-- originally recorded, reversing it.
+		applyPlayRecord(data, -1)
+
+	elseif recordType == "flag" then
+		anyStatRecorded = true
+		local teamName = (data.team and data.team.Name) or "Unknown"
+		local t = teamPenalties[teamName]
+		if not t then
+			t = { count = 0, yards = 0 }
+			teamPenalties[teamName] = t
+		end
+		t.count = t.count + 1
+		t.yards = t.yards + (data.yards or 0)
+	end
+end)
+
+StatsRequestFunction.OnServerInvoke = function(_player)
+	local list = {}
+	for _, entry in pairs(playerStats) do
+		table.insert(list, entry)
+	end
+	return {
+		players = list,
+		teamPenalties = teamPenalties,
+		homeScore = HomeScore.Value,
+		awayScore = AwayScore.Value,
+		homeName = HomeName.Value,
+		awayName = AwayName.Value,
+		matchId = MATCH_ID,
+	}
+end
+
+local function padRight(str, width)
+	str = tostring(str)
+	if #str >= width then return str:sub(1, width) end
+	return str .. string.rep(" ", width - #str)
+end
+
+local function colorToDiscordInt(color3)
+	local r = math.floor(color3.R * 255 + 0.5)
+	local g = math.floor(color3.G * 255 + 0.5)
+	local b = math.floor(color3.B * 255 + 0.5)
+	return r * 65536 + g * 256 + b
+end
+
+local function buildFullTable(statPath, sortKey, teamFilter)
+	local list = {}
+	for _, entry in pairs(playerStats) do
+		if not teamFilter or entry.teamName == teamFilter then
+			local stat = entry[statPath]
+			if stat and (stat[sortKey] or 0) > 0 then
+				table.insert(list, entry)
+			end
+		end
+	end
+
+	if #list == 0 then return "—" end
+
+	table.sort(list, function(a, b)
+		return a[statPath][sortKey] > b[statPath][sortKey]
+	end)
+
+	local lines = {}
+	for _, e in ipairs(list) do
+		local s = e[statPath]
+		local name = padRight(e.name, 20)
+		if statPath == "passing" then
+			table.insert(lines, string.format("%s %3d/%-3d %5d yd %2d TD %2d INT %2d SACKED", name, s.completions, s.attempts, s.yards, s.tds, s.ints, s.sacked or 0))
+		elseif statPath == "rushing" then
+			table.insert(lines, string.format("%s %3d car %5d yd %2d TD", name, s.carries, s.yards, s.tds))
+		elseif statPath == "receiving" then
+			table.insert(lines, string.format("%s %3d rec %5d yd %2d TD", name, s.receptions, s.yards, s.tds))
+		elseif statPath == "defense" then
+			table.insert(lines, string.format("%s %3d tkl %2d SK %2d INT", name, s.tackles, s.sacks or 0, s.interceptions))
+		end
+	end
+
+	local text = table.concat(lines, "\n")
+	if #text > 1000 then
+		text = text:sub(1, 1000) .. "\n… (truncated)"
+	end
+	return "```\n" .. text .. "\n```"
+end
+
+local function buildPenaltiesLine()
+	local lines = {}
+	for teamName, t in pairs(teamPenalties) do
+		table.insert(lines, string.format("%s: %d for %d yds", teamName, t.count, t.yards))
+	end
+	if #lines == 0 then return "None" end
+	return table.concat(lines, "\n")
+end
+
+local function topPerformerLine(statPath, sortKey, formatFn)
+	local best = nil
+	for _, entry in pairs(playerStats) do
+		local stat = entry[statPath]
+		if stat and (stat[sortKey] or 0) > 0 then
+			if not best or stat[sortKey] > best[statPath][sortKey] then
+				best = entry
+			end
+		end
+	end
+	if not best then return nil end
+	return string.format("%s — %s", best.name, formatFn(best[statPath]))
+end
+
+local function buildGameReportEmbed()
+	local fields = {}
+
+	local passLine = topPerformerLine("passing", "yards", function(s)
+		return string.format("%d/%d, %d yds, %d TD, %d sacked", s.completions, s.attempts, s.yards, s.tds, s.sacked or 0)
+	end)
+	if passLine then
+		table.insert(fields, { name = "🎯 Top Passer", value = passLine, inline = false })
+	end
+
+	local rushLine = topPerformerLine("rushing", "yards", function(s)
+		return string.format("%d car, %d yds, %d TD", s.carries, s.yards, s.tds)
+	end)
+	if rushLine then
+		table.insert(fields, { name = "🏃 Top Rusher", value = rushLine, inline = false })
+	end
+
+	local recLine = topPerformerLine("receiving", "yards", function(s)
+		return string.format("%d rec, %d yds, %d TD", s.receptions, s.yards, s.tds)
+	end)
+	if recLine then
+		table.insert(fields, { name = "🙌 Top Receiver", value = recLine, inline = false })
+	end
+
+	local defLine = topPerformerLine("defense", "tackles", function(s)
+		return string.format("%d tkl, %d SK, %d INT", s.tackles, s.sacks or 0, s.interceptions)
+	end)
+	if defLine then
+		table.insert(fields, { name = "🛡️ Top Tackler", value = defLine, inline = false })
+	end
+
+	table.insert(fields, { name = "🔑 Match ID", value = "`" .. MATCH_ID .. "`", inline = true })
+	table.insert(fields, { name = "🚩 Penalties", value = buildPenaltiesLine(), inline = true })
+
+	return {
+		title = "🏆 FINAL | Game Report",
+		description = string.format("**%s %d — %d %s**", HomeName.Value, HomeScore.Value, AwayScore.Value, AwayName.Value),
+		color = 2895667,
+		fields = fields,
+		footer = { text = string.format("RefAssist Stats System • Match export tag: %s", MATCH_ID) },
+		timestamp = DateTime.now():ToIsoDate(),
+	}
+end
+
+local function buildTeamEmbed(emoji, teamName, score, colorInt)
+	return {
+		title = string.format("%s %s — %d PTS", emoji, string.upper(teamName), score),
+		color = colorInt,
+		fields = {
+			{ name = "Passing",   value = buildFullTable("passing",   "yards",   teamName), inline = false },
+			{ name = "Rushing",   value = buildFullTable("rushing",   "yards",   teamName), inline = false },
+			{ name = "Receiving", value = buildFullTable("receiving", "yards",   teamName), inline = false },
+			{ name = "Defense",   value = buildFullTable("defense",   "tackles", teamName), inline = false },
+		},
+	}
+end
+
+local function sendDiscordRecap()
+	if DISCORD_WEBHOOK_URL == "" then
+		warn("[StatsManager] Discord webhook URL isn't set — skipping recap.")
+		return
+	end
+
+	local homeEmbed = buildTeamEmbed("🏠", HomeName.Value, HomeScore.Value, colorToDiscordInt(HomeColor.Value))
+	local awayEmbed = buildTeamEmbed("✈️", AwayName.Value, AwayScore.Value, colorToDiscordInt(AwayColor.Value))
+
+	local payload = { embeds = { buildGameReportEmbed(), homeEmbed, awayEmbed } }
+	local jsonPayload = HttpService:JSONEncode(payload)
+
+	for attempt = 1, 3 do
+		local ok, err = pcall(function()
+			HttpService:PostAsync(DISCORD_WEBHOOK_URL, jsonPayload, Enum.HttpContentType.ApplicationJson)
+		end)
+		if ok then
+			print(string.format("[StatsManager] Sent recap for match %s", MATCH_ID))
+			break
+		else
+			if string.find(tostring(err), "429") then
+				warn(string.format("[StatsManager] Rate limited, retry %d/3 in %ds…", attempt, attempt * 2))
+				task.wait(attempt * 2)
+			else
+				warn("[StatsManager] Failed to send recap:", err)
+				break
+			end
+		end
+	end
+end
+
+local recapSent = false
+local function triggerRecap()
+	if recapSent then return end
+	if not (anyStatRecorded or refAssistEverEnabled) then
+		print("[StatsManager] Skipping recap — no stats recorded.")
+		return
+	end
+	recapSent = true
+	sendDiscordRecap()
+end
+
+EndEvent.Event:Connect(triggerRecap)
+game:BindToClose(function()
+	triggerRecap()
+	task.wait(2)
+end)

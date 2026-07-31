@@ -1,0 +1,93 @@
+I run a Roblox football league. I have a Discord bot that will POST match
+box score data to my website whenever someone runs a /export command. I
+need you to build the receiving side of this.
+
+INCOMING DATA SHAPE (POST to /api/matches/import):
+
+{
+  "matchId": "VGHY6R",
+  "exportedAt": "2026-07-23T04:12:00.000Z",
+  "homeTeam": {
+    "teamName": "Philadelphia Waterdogs",
+    "score": 6,
+    "players": [
+      {
+        "name": "k4masi",
+        "userId": 123456789,
+        "headshotUrl": "https://tr.rbxcdn.com/...",
+        "passing": { "completions": 8, "attempts": 12, "yards": 145, "tds": 2, "ints": 1 },
+        "rushing": { "carries": 3, "yards": 14, "tds": 0 }
+      }
+    ]
+  },
+  "awayTeam": { "...same shape..." }
+}
+
+Notes on this data:
+- A player object only includes the stat category keys they actually
+  recorded something in this match (passing/rushing/receiving/defense) —
+  don't assume all four are always present.
+- Categories and their fields:
+  - passing: completions, attempts, yards, tds, ints
+  - rushing: carries, yards, tds
+  - receiving: receptions, yards, tds
+  - defense: tackles, interceptions
+- userId is the Roblox user ID (a stable numeric identifier). headshotUrl
+  is a Roblox CDN link that can expire or rotate over time — store userId
+  as the source of truth and re-fetch/cache the headshot image yourself
+  (e.g. via Roblox's public thumbnail API:
+  https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=<id>&size=150x150&format=Png)
+  rather than trusting the URL in the payload to stay valid forever.
+- userId or headshotUrl can be null if a username lookup failed on my end
+  (e.g. a renamed account) — handle that gracefully in the UI (fall back to
+  a placeholder avatar) rather than assuming they're always populated.
+
+WHAT TO BUILD:
+
+1. A database schema with:
+   - A `players` table keyed by Roblox userId, storing their current
+     display name and cached headshot URL (+ when it was last refreshed).
+   - A `matches` table storing matchId (unique), team names, scores, and
+     exportedAt timestamp.
+   - Per-player-per-match stat rows (or a JSON stats blob per match
+     participant — whichever fits your existing schema conventions better),
+     linked to both the player and the match.
+   - Aggregated/accumulating CAREER totals per player per category, kept in
+     sync as new matches come in (don't just store per-match rows and
+     recompute totals on every page load if that'll be slow at scale —
+     up to you based on expected traffic, but flag your choice).
+
+2. POST /api/matches/import
+   - Require an `Authorization: Bearer <token>` header, checked against a
+     secret stored in an environment variable (e.g. EXPORT_API_KEY). Reject
+     with 401 if missing/wrong.
+   - Must be IDEMPOTENT by matchId: if a match with this matchId already
+     exists, re-importing it should update/replace that match's stats
+     rather than double-counting it into career totals. This matters
+     because someone might accidentally run /export twice for the same
+     match.
+   - Validate the payload shape reasonably (reject with 400 + a clear
+     error message on obviously malformed input, don't just crash).
+   - On success, update both the per-match stat rows AND the players'
+     accumulating career totals.
+
+3. Update the existing stats pages to show real data instead of the
+   current "No stats data yet" placeholder:
+   - Replace the position-based dropdown (Quarterbacks/Running
+     Backs/etc.) with tabs or a dropdown for stat categories instead:
+     Passing / Rushing / Receiving / Defense — since that's what this data
+     actually represents.
+   - Each category view should be a sortable table (click a column header
+     to sort by it) showing every player with at least one non-zero stat
+     in that category, their team, headshot, and the relevant columns for
+     that category.
+   - Keep the existing dark theme / visual style already used elsewhere on
+     the site.
+   - Also add (or point me to, if it already exists) a per-match "box
+     score" page reachable by matchId, showing both teams' full stat lines
+     for that specific match — basically a persisted version of what the
+     Discord embed shows.
+
+Ask me clarifying questions about anything ambiguous before you start,
+especially around the database schema choice and whether career totals
+should be computed on write or on read.

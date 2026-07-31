@@ -1,0 +1,69 @@
+// robloxLookup.mjs
+// Resolves Roblox usernames (recovered from the parsed embed text) to
+// userIds and headshot image URLs, using Roblox's public APIs. No API key
+// needed for either of these endpoints.
+//
+// Uses the built-in `fetch` (Node 18+). If your bot runs on an older Node,
+// add `node-fetch` and swap the import — but discord.js v14 itself
+// generally expects Node 16.11+, and modern setups are almost always 18+.
+
+export async function resolveRobloxUsers(usernames) {
+    const unique = [...new Set(usernames)];
+    if (unique.length === 0) return {};
+
+    const res = await fetch("https://users.roblox.com/v1/usernames/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: unique, excludeBannedUsers: false }),
+    });
+
+    if (!res.ok) {
+        throw new Error(`Roblox username lookup failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const map = {};
+    for (const u of data.data || []) {
+        map[u.requestedUsername] = { userId: u.id, name: u.name };
+    }
+    return map;
+}
+
+export async function resolveHeadshots(userIds) {
+    const unique = [...new Set(userIds)].filter(Boolean);
+    if (unique.length === 0) return {};
+
+    const idsParam = unique.join(",");
+    const res = await fetch(
+        `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${idsParam}&size=150x150&format=Png&isCircular=false`
+    );
+
+    if (!res.ok) {
+        throw new Error(`Roblox headshot lookup failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const map = {};
+    for (const t of data.data || []) {
+        map[t.targetId] = t.imageUrl;
+    }
+    return map;
+}
+
+// Takes an array of { name, passing?, rushing?, ... } rows and returns the
+// same rows with userId + headshotUrl attached (null if the lookup missed —
+// e.g. a since-renamed account).
+export async function attachRobloxIdentity(players) {
+    const userMap = await resolveRobloxUsers(players.map((p) => p.name));
+    const userIds = Object.values(userMap).map((u) => u.userId);
+    const headshotMap = await resolveHeadshots(userIds);
+
+    return players.map((p) => {
+        const user = userMap[p.name];
+        return {
+            ...p,
+            userId: user ? user.userId : null,
+            headshotUrl: user ? headshotMap[user.userId] || null : null,
+        };
+    });
+}

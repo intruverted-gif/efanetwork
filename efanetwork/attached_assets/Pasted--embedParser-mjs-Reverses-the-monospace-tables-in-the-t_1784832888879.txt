@@ -1,0 +1,138 @@
+// embedParser.mjs
+// Reverses the monospace tables in the team embeds back into structured
+// data. This mirrors the exact fixed-width format RefAssist's StatsManager
+// uses (StatsManager.server.lua, buildFullTable) — if that formatting ever
+// changes, these regexes need to change with it. Names are padded to
+// exactly 20 characters there (max Roblox username length), which is what
+// makes `(.{20})` here safe to rely on.
+
+function stripCodeFence(value) {
+    if (!value) return "";
+    return value.replace(/```/g, "").trim();
+}
+
+function parseStatBlock(value, kind) {
+    const clean = stripCodeFence(value);
+    if (!clean || clean === "—") return [];
+
+    const lines = clean.split("\n");
+    const results = [];
+
+    for (const line of lines) {
+        if (line.startsWith("…")) continue; // truncation notice, not a real row
+
+        let m;
+        if (kind === "passing") {
+            // Current StatsManager format:
+            // NAME                 8/14  322 yd  2 TD  2 INT  1 SACKED
+            // Keep SACKED optional so older embeds remain importable.
+            m = line.match(/^(.+?)\s+(\d+)\/(\d+)\s+(\d+)\s+yd\s+(\d+)\s+TD\s+(\d+)\s+INT(?:\s+(\d+)\s+SACKED)?\s*$/);
+            if (m) {
+                results.push({
+                    name: m[1].trim(),
+                    completions: parseInt(m[2], 10),
+                    attempts: parseInt(m[3], 10),
+                    yards: parseInt(m[4], 10),
+                    tds: parseInt(m[5], 10),
+                    ints: parseInt(m[6], 10),
+                    sacked: m[7] ? parseInt(m[7], 10) : 0,
+                });
+            }
+        } else if (kind === "rushing") {
+            m = line.match(/^(.{20})\s+(\d+) car\s+(\d+) yd\s+(\d+) TD$/);
+            if (m) {
+                results.push({
+                    name: m[1].trim(),
+                    carries: parseInt(m[2], 10),
+                    yards: parseInt(m[3], 10),
+                    tds: parseInt(m[4], 10),
+                });
+            }
+        } else if (kind === "receiving") {
+            m = line.match(/^(.{20})\s+(\d+) rec\s+(\d+) yd\s+(\d+) TD$/);
+            if (m) {
+                results.push({
+                    name: m[1].trim(),
+                    receptions: parseInt(m[2], 10),
+                    yards: parseInt(m[3], 10),
+                    tds: parseInt(m[4], 10),
+                });
+            }
+        } else if (kind === "defense") {
+            // Current StatsManager format includes sacks between tackles and
+            // interceptions. Keep the old two-column format supported too.
+            m = line.match(/^(.+?)\s+(\d+)\s+tkl(?:\s+(\d+)\s+SK)?\s+(\d+)\s+INT\s*$/);
+            if (m) {
+                results.push({
+                    name: m[1].trim(),
+                    tackles: parseInt(m[2], 10),
+                    sacks: m[3] ? parseInt(m[3], 10) : 0,
+                    interceptions: parseInt(m[4], 10),
+                });
+            }
+        }
+    }
+
+    return results;
+}
+
+function parseTeamEmbed(embed) {
+    // Title looks like "🏠 TEAMNAME — 12 PTS" or "✈️ TEAMNAME — 12 PTS"
+    const titleMatch = embed.title.match(/^\S+\s+(.+)\s+—\s+(\d+)\s+PTS$/u);
+    const teamName = titleMatch ? titleMatch[1].trim() : embed.title;
+    const score = titleMatch ? parseInt(titleMatch[2], 10) : 0;
+
+    const fieldsByName = {};
+    for (const f of embed.fields || []) {
+        fieldsByName[f.name] = f.value;
+    }
+
+    return {
+        teamName,
+        score,
+        passing: parseStatBlock(fieldsByName["Passing"], "passing"),
+        rushing: parseStatBlock(fieldsByName["Rushing"], "rushing"),
+        receiving: parseStatBlock(fieldsByName["Receiving"], "receiving"),
+        defense: parseStatBlock(fieldsByName["Defense"], "defense"),
+    };
+}
+
+// Merges the 4 separate category arrays into one row per player, since a
+// player (e.g. a QB who also rushed) can show up in more than one table.
+function mergeTeamPlayers(teamParsed) {
+    const players = {};
+    const categories = ["passing", "rushing", "receiving", "defense"];
+
+    for (const cat of categories) {
+        for (const row of teamParsed[cat]) {
+            if (!players[row.name]) {
+                players[row.name] = { name: row.name };
+            }
+            const { name, ...stats } = row;
+            players[row.name][cat] = stats;
+        }
+    }
+
+    return Object.values(players);
+}
+
+// embeds = [gameReportEmbed, homeTeamEmbed, awayTeamEmbed], exactly the
+// order StatsManager.server.lua sends them in.
+export function parseMatchEmbeds(embeds) {
+    const [gameReport, homeEmbed, awayEmbed] = embeds;
+
+    const home = parseTeamEmbed(homeEmbed);
+    const away = parseTeamEmbed(awayEmbed);
+
+    home.players = mergeTeamPlayers(home);
+    away.players = mergeTeamPlayers(away);
+    delete home.passing; delete home.rushing; delete home.receiving; delete home.defense;
+    delete away.passing; delete away.rushing; delete away.receiving; delete away.defense;
+
+    const matchIdField = gameReport.fields?.find((f) => f.name.includes("Match ID"));
+    const matchId = matchIdField ? matchIdField.value.replace(/`/g, "").trim() : null;
+
+    return { matchId, homeTeam: home, awayTeam: away };
+}
+
+export { parseTeamEmbed, mergeTeamPlayers };

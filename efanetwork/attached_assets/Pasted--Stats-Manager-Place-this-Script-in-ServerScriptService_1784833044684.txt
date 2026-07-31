@@ -1,0 +1,404 @@
+-- Stats Manager
+-- Place this Script in ServerScriptService.
+--
+-- Aggregates every confirmed play/flag into a per-player box score, serves
+-- it to the client stat sheet on request, and posts a Discord embed recap
+-- when ReplicatedStorage.Events.End fires or the server shuts down.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+local GameData = ReplicatedStorage:WaitForChild("GameData")
+
+local HomeScore = GameData.Home.Score
+local AwayScore = GameData.Away.Score
+local HomeName = GameData.Home.Info.TeamName
+local AwayName = GameData.Away.Info.TeamName
+local HomeColor = GameData.Home.Info.PrimaryColor
+local AwayColor = GameData.Away.Info.PrimaryColor
+
+local RefAssistValue = GameData:WaitForChild("RefAssist")
+
+local StatRecordEvent = Events:WaitForChild("StatRecordEvent")
+local StatsRequestFunction = Events:WaitForChild("StatsRequestFunction")
+local EndEvent = Events:WaitForChild("End")
+
+-- Only send the recap if something actually happened this session — you
+-- toggle RefAssist off/on a lot for things like kickoffs, so "it was on at
+-- some point" is a better signal than "it happens to be on right now."
+local anyStatRecorded = false
+local refAssistEverEnabled = RefAssistValue.Value == true
+
+RefAssistValue:GetPropertyChangedSignal("Value"):Connect(function()
+	if RefAssistValue.Value == true then
+		refAssistEverEnabled = true
+	end
+end)
+
+-- A short, shareable per-match code, e.g. "VGHY6R" — generated once per
+-- server session. Whatever later does the /export lookup keys off this.
+local function generateMatchId()
+	local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	local id = {}
+	for i = 1, 6 do
+		local idx = math.random(1, #chars)
+		id[i] = chars:sub(idx, idx)
+	end
+	return table.concat(id)
+end
+
+local MATCH_ID = generateMatchId()
+
+-- ── DISCORD WEBHOOK CONFIG ────────────────────────────────────────────────
+-- Switched to public proxy endpoint to avoid Roblox IP rate-limit blocks (HTTP 429).
+--local DISCORD_WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1529740030795583539/IdEsKo_7Nqck7knqStkZxymbdsgQ7fleIe8fQRs1LFsU2d6UbjAyXrBuucZq_pZwQXkP"
+local DISCORD_WEBHOOK_URL = "https://efastats.jbwatch4.workers.dev/api/webhooks/1529740030795583539/IdEsKo_7Nqck7knqStkZxymbdsgQ7fleIe8fQRs1LFsU2d6UbjAyXrBuucZq_pZwQXkP"
+-- ──────────────────────────────────────────────────────────────────────────
+
+local playerStats = {} -- [userId] = { name, userId, teamName, passing={}, rushing={}, receiving={}, defense={} }
+local teamPenalties = {} -- [teamName] = { count = 0, yards = 0 }
+
+local function blankStatLine(player)
+	return {
+		name = player.Name,
+		userId = player.UserId,
+		teamName = player.Team and player.Team.Name or "Unknown",
+		passing = { attempts = 0, completions = 0, yards = 0, tds = 0, ints = 0 },
+		rushing = { carries = 0, yards = 0, tds = 0 },
+		receiving = { receptions = 0, yards = 0, tds = 0 },
+		defense = { tackles = 0, interceptions = 0 },
+	}
+end
+
+local function getEntry(player)
+	if not player then return nil end
+	local existing = playerStats[player.UserId]
+	if existing then
+		return existing
+	end
+	local entry = blankStatLine(player)
+	playerStats[player.UserId] = entry
+	return entry
+end
+
+-- Fallback for stats we only have a name string for (the tackler, since that
+-- comes through as pendingResult.secondaryName rather than a Player object).
+local function getEntryByName(name)
+	local p = Players:FindFirstChild(name)
+	if p then
+		return getEntry(p)
+	end
+	for _, entry in pairs(playerStats) do
+		if entry.name == name then
+			return entry
+		end
+	end
+	return nil
+end
+
+StatRecordEvent.Event:Connect(function(recordType, data)
+	anyStatRecorded = true
+
+	if recordType == "play" then
+		if data.kind == "Incomplete" then
+			local e = getEntry(data.thrower)
+			if e then
+				e.passing.attempts = e.passing.attempts + 1
+			end
+			return
+		end
+
+		if data.wasIntercepted then
+			local passerEntry = getEntry(data.thrower)
+			if passerEntry then
+				passerEntry.passing.attempts = passerEntry.passing.attempts + 1
+				passerEntry.passing.ints = passerEntry.passing.ints + 1
+			end
+
+			local defenderEntry = getEntry(data.receiver) -- the interceptor
+			if defenderEntry then
+				defenderEntry.defense.interceptions = defenderEntry.defense.interceptions + 1
+			end
+			return
+		end
+
+		if data.receiver then
+			-- Completed pass. Passing yards == receiving yards, same as real
+			-- box scores. Yards gained via any handoff AFTER the catch aren't
+			-- split out separately (no per-segment distance data) — they're
+			-- folded into the receiver's total, not credited as rushing.
+			local passerEntry = getEntry(data.thrower)
+			if passerEntry then
+				passerEntry.passing.attempts = passerEntry.passing.attempts + 1
+				passerEntry.passing.completions = passerEntry.passing.completions + 1
+				passerEntry.passing.yards = passerEntry.passing.yards + data.yards
+				if data.isTouchdown then
+					passerEntry.passing.tds = passerEntry.passing.tds + 1
+				end
+			end
+
+			local receiverEntry = getEntry(data.receiver)
+			if receiverEntry then
+				receiverEntry.receiving.receptions = receiverEntry.receiving.receptions + 1
+				receiverEntry.receiving.yards = receiverEntry.receiving.yards + data.yards
+				if data.isTouchdown then
+					receiverEntry.receiving.tds = receiverEntry.receiving.tds + 1
+				end
+			end
+		else
+			-- No receiver at all: the center/QB kept the snap and ran it.
+			-- Counted as a rushing attempt. (This also covers what would be a
+			-- "sack" in real football — we don't distinguish a stopped
+			-- scramble-turned-keeper from an intended run; see notes.)
+			local runnerEntry = getEntry(data.thrower)
+			if runnerEntry then
+				runnerEntry.rushing.carries = runnerEntry.rushing.carries + 1
+				runnerEntry.rushing.yards = runnerEntry.rushing.yards + data.yards
+				if data.isTouchdown then
+					runnerEntry.rushing.tds = runnerEntry.rushing.tds + 1
+				end
+			end
+		end
+
+		if data.kind == "Tackle" and data.tacklerName then
+			local tacklerEntry = getEntryByName(data.tacklerName)
+			if tacklerEntry then
+				tacklerEntry.defense.tackles = tacklerEntry.defense.tackles + 1
+			end
+		end
+
+	elseif recordType == "flag" then
+		local teamName = (data.team and data.team.Name) or "Unknown"
+		local t = teamPenalties[teamName]
+		if not t then
+			t = { count = 0, yards = 0 }
+			teamPenalties[teamName] = t
+		end
+		t.count = t.count + 1
+		t.yards = t.yards + (data.yards or 0)
+	end
+end)
+
+-- ── Serve the client stat sheet ───────────────────────────────────────────
+StatsRequestFunction.OnServerInvoke = function(_player)
+	local list = {}
+	for _, entry in pairs(playerStats) do
+		table.insert(list, entry)
+	end
+
+	return {
+		players = list,
+		teamPenalties = teamPenalties,
+		homeScore = HomeScore.Value,
+		awayScore = AwayScore.Value,
+		homeName = HomeName.Value,
+		awayName = AwayName.Value,
+		matchId = MATCH_ID,
+	}
+end
+
+-- ── Discord recap ─────────────────────────────────────────────────────────
+local function padRight(str, width)
+	str = tostring(str)
+	if #str >= width then
+		return str:sub(1, width)
+	end
+	return str .. string.rep(" ", width - #str)
+end
+
+local function colorToDiscordInt(color3)
+	local r = math.floor(color3.R * 255 + 0.5)
+	local g = math.floor(color3.G * 255 + 0.5)
+	local b = math.floor(color3.B * 255 + 0.5)
+	return r * 65536 + g * 256 + b
+end
+
+-- Builds a full monospace table of every player (optionally filtered to one
+-- team) with a non-zero stat in this category, sorted by sortKey descending.
+-- This is meant to be a complete record, not a highlights reel — useful for
+-- pulling back out later via the match ID.
+local function buildFullTable(statPath, sortKey, teamFilter)
+	local list = {}
+	for _, entry in pairs(playerStats) do
+		if not teamFilter or entry.teamName == teamFilter then
+			local stat = entry[statPath]
+			if stat and (stat[sortKey] or 0) > 0 then
+				table.insert(list, entry)
+			end
+		end
+	end
+
+	if #list == 0 then
+		return "—"
+	end
+
+	table.sort(list, function(a, b)
+		return a[statPath][sortKey] > b[statPath][sortKey]
+	end)
+
+	local lines = {}
+	for _, e in ipairs(list) do
+		local s = e[statPath]
+		-- Padded to 20, not truncated — that's the max Roblox username length,
+		-- so the bot parsing this back out later never loses part of a name.
+		local name = padRight(e.name, 20)
+		if statPath == "passing" then
+			table.insert(lines, string.format("%s %3d/%-3d %5d yd %2d TD %2d INT", name, s.completions, s.attempts, s.yards, s.tds, s.ints))
+		elseif statPath == "rushing" then
+			table.insert(lines, string.format("%s %3d car %5d yd %2d TD", name, s.carries, s.yards, s.tds))
+		elseif statPath == "receiving" then
+			table.insert(lines, string.format("%s %3d rec %5d yd %2d TD", name, s.receptions, s.yards, s.tds))
+		elseif statPath == "defense" then
+			table.insert(lines, string.format("%s %3d tkl %2d INT", name, s.tackles, s.interceptions))
+		end
+	end
+
+	local text = table.concat(lines, "\n")
+	-- Discord hard-caps field values at 1024 chars. Truncate rather than error.
+	if #text > 1000 then
+		text = text:sub(1, 1000) .. "\n… (truncated, too many players for one field)"
+	end
+	return "```\n" .. text .. "\n```"
+end
+
+local function buildPenaltiesLine()
+	local lines = {}
+	for teamName, t in pairs(teamPenalties) do
+		table.insert(lines, string.format("%s: %d for %d yds", teamName, t.count, t.yards))
+	end
+	if #lines == 0 then
+		return "None"
+	end
+	return table.concat(lines, "\n")
+end
+
+-- "Name — formatted stat line", or nil if nobody qualifies (field gets
+-- omitted entirely rather than showing an empty "Top Passer: —").
+local function topPerformerLine(statPath, sortKey, formatFn)
+	local best = nil
+	for _, entry in pairs(playerStats) do
+		local stat = entry[statPath]
+		if stat and (stat[sortKey] or 0) > 0 then
+			if not best or stat[sortKey] > best[statPath][sortKey] then
+				best = entry
+			end
+		end
+	end
+	if not best then return nil end
+	return string.format("%s — %s", best.name, formatFn(best[statPath]))
+end
+
+local function buildGameReportEmbed()
+	local fields = {}
+
+	local passLine = topPerformerLine("passing", "yards", function(s)
+		return string.format("%d/%d, %d yds, %d TD", s.completions, s.attempts, s.yards, s.tds)
+	end)
+	if passLine then
+		table.insert(fields, { name = "🎯 Top Passer", value = passLine, inline = false })
+	end
+
+	local rushLine = topPerformerLine("rushing", "yards", function(s)
+		return string.format("%d car, %d yds, %d TD", s.carries, s.yards, s.tds)
+	end)
+	if rushLine then
+		table.insert(fields, { name = "🏃 Top Rusher", value = rushLine, inline = false })
+	end
+
+	local recLine = topPerformerLine("receiving", "yards", function(s)
+		return string.format("%d rec, %d yds, %d TD", s.receptions, s.yards, s.tds)
+	end)
+	if recLine then
+		table.insert(fields, { name = "🙌 Top Receiver", value = recLine, inline = false })
+	end
+
+	local defLine = topPerformerLine("defense", "tackles", function(s)
+		return string.format("%d tkl, %d INT", s.tackles, s.interceptions)
+	end)
+	if defLine then
+		table.insert(fields, { name = "🛡️ Top Tackler", value = defLine, inline = false })
+	end
+
+	table.insert(fields, { name = "🔑 Match ID", value = "`" .. MATCH_ID .. "`", inline = true })
+	table.insert(fields, { name = "🚩 Penalties", value = buildPenaltiesLine(), inline = true })
+
+	return {
+		title = "🏆 FINAL | Game Report",
+		description = string.format("**%s %d — %d %s**", HomeName.Value, HomeScore.Value, AwayScore.Value, AwayName.Value),
+		color = 2895667,
+		fields = fields,
+		footer = { text = string.format("RefAssist Stats System • Match export tag: %s", MATCH_ID) },
+		timestamp = DateTime.now():ToIsoDate(),
+	}
+end
+
+local function buildTeamEmbed(emoji, teamName, score, colorInt)
+	return {
+		title = string.format("%s %s — %d PTS", emoji, string.upper(teamName), score),
+		color = colorInt,
+		fields = {
+			{ name = "Passing", value = buildFullTable("passing", "yards", teamName), inline = false },
+			{ name = "Rushing", value = buildFullTable("rushing", "yards", teamName), inline = false },
+			{ name = "Receiving", value = buildFullTable("receiving", "yards", teamName), inline = false },
+			{ name = "Defense", value = buildFullTable("defense", "tackles", teamName), inline = false },
+		},
+	}
+end
+
+local function sendDiscordRecap()
+	if DISCORD_WEBHOOK_URL == "" then
+		warn("[StatsManager] Discord webhook URL isn't set — skipping recap send. See the integration notes.")
+		return
+	end
+
+	local homeEmbed = buildTeamEmbed("🏠", HomeName.Value, HomeScore.Value, colorToDiscordInt(HomeColor.Value))
+	local awayEmbed = buildTeamEmbed("✈️", AwayName.Value, AwayScore.Value, colorToDiscordInt(AwayColor.Value))
+
+	local payload = { embeds = { buildGameReportEmbed(), homeEmbed, awayEmbed } }
+	local jsonPayload = HttpService:JSONEncode(payload)
+
+	local maxRetries = 3
+	local success = false
+
+	for attempt = 1, maxRetries do
+		local ok, err = pcall(function()
+			HttpService:PostAsync(DISCORD_WEBHOOK_URL, jsonPayload, Enum.HttpContentType.ApplicationJson)
+		end)
+
+		if ok then
+			success = true
+			print(string.format("[StatsManager] Sent recap for match %s", MATCH_ID))
+			break
+		else
+			if string.find(tostring(err), "429") then
+				warn(string.format("[StatsManager] Hit Discord Rate Limit (HTTP 429). Retry attempt %d/%d in %d seconds...", attempt, maxRetries, attempt * 2))
+				task.wait(attempt * 2)
+			else
+				warn("[StatsManager] Failed to send Discord recap:", err)
+				break
+			end
+		end
+	end
+end
+
+local recapSent = false
+local function triggerRecap()
+	if recapSent then return end
+
+	if not (anyStatRecorded or refAssistEverEnabled) then
+		print("[StatsManager] Skipping recap — RefAssist was never enabled and no stats were recorded this session.")
+		return
+	end
+
+	recapSent = true
+	sendDiscordRecap()
+end
+
+EndEvent.Event:Connect(triggerRecap)
+
+game:BindToClose(function()
+	triggerRecap()
+	task.wait(2)
+end)

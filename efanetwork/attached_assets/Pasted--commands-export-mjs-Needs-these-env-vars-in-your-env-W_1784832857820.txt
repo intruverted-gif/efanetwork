@@ -1,0 +1,86 @@
+// commands/export.mjs
+// Needs these env vars in your .env:
+//   WEBSITE_API_URL   e.g. https://yourleague.example.com
+//   WEBSITE_API_KEY   a secret shared with your website's import endpoint
+
+import { SlashCommandBuilder } from "discord.js";
+import { getMatch } from "../matchStore.mjs";
+import { parseMatchEmbeds } from "../embedParser.mjs";
+import { attachRobloxIdentity } from "../robloxLookup.mjs";
+
+export default {
+    data: new SlashCommandBuilder()
+        .setName("export")
+        .setDescription("Export a match box score to the league website")
+        .addStringOption((option) =>
+            option
+                .setName("matchid")
+                .setDescription("The match export tag from the Game Report embed")
+                .setRequired(true)
+        ),
+
+    async execute(interaction) {
+        const matchId = interaction.options.getString("matchid").toUpperCase();
+        const match = getMatch(matchId);
+
+        if (!match) {
+            await interaction.reply({
+                content: `❌ No cached match found for \`${matchId}\`. I only have data for recaps I actually saw posted in a channel I'm in.`,
+                ephemeral: true,
+            });
+            return;
+        }
+
+        await interaction.deferReply();
+
+        try {
+            const parsed = parseMatchEmbeds(match.embeds);
+
+            parsed.homeTeam.players = await attachRobloxIdentity(parsed.homeTeam.players);
+            parsed.awayTeam.players = await attachRobloxIdentity(parsed.awayTeam.players);
+
+            const playerCount =
+                parsed.homeTeam.players.length + parsed.awayTeam.players.length;
+            const passingCount =
+                parsed.homeTeam.players.filter((p) => p.passing).length +
+                parsed.awayTeam.players.filter((p) => p.passing).length;
+
+            if (playerCount === 0) {
+                throw new Error(
+                    "Could not parse any player rows from the team embeds. Check the embed parser format."
+                );
+            }
+            if (passingCount === 0) {
+                throw new Error(
+                    "Could not parse any passing rows from the embeds. The export was not sent; update embedParser.mjs to support the SACKED column and try again."
+                );
+            }
+
+            const payload = {
+                matchId,
+                homeTeam: parsed.homeTeam,
+                awayTeam: parsed.awayTeam,
+                exportedAt: new Date().toISOString(),
+            };
+
+            const response = await fetch(`${process.env.WEBSITE_API_URL}/api/matches/import`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.WEBSITE_API_KEY}`,
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Website responded ${response.status}: ${text}`);
+            }
+
+            await interaction.editReply(`✅ Match \`${matchId}\` exported to the league website!`);
+        } catch (err) {
+            console.error(err);
+            await interaction.editReply(`⚠️ Export failed for \`${matchId}\`: ${err.message}`);
+        }
+    },
+};
