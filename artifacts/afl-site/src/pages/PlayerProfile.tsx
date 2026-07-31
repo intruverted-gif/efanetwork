@@ -180,26 +180,6 @@ export default function PlayerProfile() {
         return rows.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, keys), 0);
       };
 
-      let totalRushYards = 0;
-      let totalRushCarries = 0;
-
-      data.forEach((row: Record<string, any>) => {
-        const rushYdsKey = Object.keys(row).find((k) =>
-          ['rush_yds', 'rush_yards', 'rushing_yards', 'rushing_yds'].includes(k.toLowerCase())
-        );
-        const carryKey = Object.keys(row).find((k) =>
-          ['carries', 'rush_carries', 'car', 'att', 'attempts'].includes(k.toLowerCase()) && !k.includes('pass')
-        );
-
-        if (rushYdsKey && row[rushYdsKey] !== undefined) {
-          totalRushYards += Number(row[rushYdsKey]) || 0;
-        }
-
-        if (carryKey && row[carryKey] !== undefined) {
-          totalRushCarries += Number(row[carryKey]) || 0;
-        }
-      });
-
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
         passing: {
@@ -219,22 +199,15 @@ export default function PlayerProfile() {
         },
         rushing: {
           carries: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushCarries = Number(row.carries ?? row.rush_carries ?? row.car ?? 0);
+            const rushCarries = Number(row.carries) || 0;
             return sum + (Number.isNaN(rushCarries) ? 0 : rushCarries);
           }, 0),
           yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushYds = Number(
-              row.rush_yds ??
-              row.rush_yards ??
-              row.rushing_yards ??
-              row.rushing_yds ??
-              row.rushYards ??
-              0
-            );
+            const rushYds = Number(row.yards) || 0;
             return sum + (Number.isNaN(rushYds) ? 0 : rushYds);
           }, 0),
           tds: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushTds = Number(row.rush_tds ?? row.rush_td ?? row.rushing_tds ?? 0);
+            const rushTds = Number(row.tds) || 0;
             return sum + (Number.isNaN(rushTds) ? 0 : rushTds);
           }, 0),
         },
