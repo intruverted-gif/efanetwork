@@ -72,6 +72,27 @@ function gameLabel(matchId: string, exportedAt: string): string {
   return isNaN(d.getTime()) ? matchId.slice(0, 8) : `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/** Dynamic property extractor for inconsistent DB row schema */
+function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regexPatterns: RegExp[]): number {
+  for (const key of exactKeys) {
+    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+      const val = Number(row[key]);
+      if (!isNaN(val)) return val;
+    }
+  }
+
+  for (const [key, rawValue] of Object.entries(row)) {
+    if (rawValue === null || rawValue === undefined || rawValue === '') continue;
+    const lowerKey = key.toLowerCase();
+    if (regexPatterns.some((pattern) => pattern.test(lowerKey))) {
+      const val = Number(rawValue);
+      if (!isNaN(val)) return val;
+    }
+  }
+
+  return 0;
+}
+
 // ── Stat row renderers ────────────────────────────────────────────────────────
 
 function PassingRow({ p }: { p: NonNullable<GameEntry['passing']> }) {
@@ -133,8 +154,6 @@ export default function PlayerProfile() {
   const userId = params.userId;
   const id = userId ?? '';
 
-  console.log('[PlayerProfile] RENDER TRIGGERED with params:', id);
-
   const { data, isLoading, isError } = useQuery<PlayerProfile | null>({
     queryKey: ['player', id],
     queryFn: async () => {
@@ -142,9 +161,6 @@ export default function PlayerProfile() {
         .from('player_stats')
         .select('*')
         .or(`user_id.eq.${id},user_id.eq.${Number(id)}`);
-
-      console.log('[PlayerProfile] DIRECT SUPABASE DATA:', data, error);
-      console.log('[PlayerProfile] FULL RAW DB ROWS:', JSON.stringify(data, null, 2));
 
       if (error) {
         throw error;
@@ -155,8 +171,11 @@ export default function PlayerProfile() {
       }
 
       const first = data[0] as Record<string, any>;
-      console.log('[PlayerProfile] Raw DB Row Keys:', Object.keys(first ?? {}));
-      console.log('[PlayerProfile] AVAILABLE PLAYER_STATS KEYS:', Object.keys(first ?? {}));
+
+      // Debug output to directly inspect database structure in browser console
+      console.log('=== DB SCHEMAS FOR PLAYER_STATS ===');
+      console.log('Row sample:', first);
+      console.log('All keys:', Object.keys(first));
 
       let passYds = 0;
       let passTds = 0;
@@ -171,19 +190,31 @@ export default function PlayerProfile() {
       let sacks = 0;
 
       (data || []).forEach((row: Record<string, any>) => {
-        passYds += Number(row.yards ?? row.pass_yds ?? row.passing_yards ?? row.pass_yards ?? 0);
-        passTds += Number(row.pass_tds ?? row.passing_tds ?? row.pass_td ?? row.tds ?? 0);
-        completions += Number(row.completions ?? row.comp ?? 0);
-        attempts += Number(row.attempts ?? row.att ?? 0);
-        passInts += Number(row.interceptions ?? row.pass_int ?? row.int ?? 0);
+        passYds += getValueByPatterns(row, ['yards', 'pass_yds', 'passing_yards', 'pass_yards'], [/pass.*yd/, /pass.*yard/]);
+        passTds += getValueByPatterns(row, ['pass_tds', 'passing_tds', 'pass_td'], [/pass.*td/]);
+        completions += getValueByPatterns(row, ['completions', 'comp'], [/comp/]);
+        attempts += getValueByPatterns(row, ['attempts', 'att'], [/att/]);
+        passInts += getValueByPatterns(row, ['pass_int', 'int'], [/pass.*int/]);
 
-        rushYds += Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? 0);
-        rushTds += Number(row.rush_tds ?? row.rush_td ?? row.rushing_tds ?? 0);
-        carries += Number(row.carries ?? row.rush_carries ?? row.car ?? 0);
+        rushYds += getValueByPatterns(
+          row,
+          ['rush_yds', 'rush_yards', 'rushing_yards', 'rush_yd', 'rushing_yd', 'ryds', 'r_yds'],
+          [/rush.*yd/, /rush.*yard/, /^r_?yds?$/]
+        );
+        rushTds += getValueByPatterns(
+          row,
+          ['rush_tds', 'rush_td', 'rushing_tds', 'rushing_td', 'rtds', 'r_tds'],
+          [/rush.*td/, /^r_?tds?$/]
+        );
+        carries += getValueByPatterns(
+          row,
+          ['carries', 'rush_carries', 'car', 'att_rush'],
+          [/carr/, /car/ drops => false]
+        );
 
-        tackles += Number(row.tackles ?? row.tkl ?? 0);
-        defInts += Number(row.def_ints ?? row.def_int ?? row.interceptions ?? 0);
-        sacks += Number(row.sacks ?? row.sck ?? 0);
+        tackles += getValueByPatterns(row, ['tackles', 'tkl'], [/tkl/, /tackle/]);
+        defInts += getValueByPatterns(row, ['def_ints', 'def_int'], [/def.*int/]);
+        sacks += getValueByPatterns(row, ['sacks', 'sck'], [/sack/, /sck/]);
       });
 
       const aggregated: CareerTotals = {
