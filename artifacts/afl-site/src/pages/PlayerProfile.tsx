@@ -196,16 +196,17 @@ export default function PlayerProfile() {
           ints: sumFromRows(data, ['ints', 'int', 'interceptions', 'passing_interceptions']),
         },
         rushing: {
-          carries: sumFromRows(data, ['carries', 'rush_attempts', 'rush_att', 'rush_carries']),
+          carries: data.reduce((sum: number, row: Record<string, any>) => {
+            const rushCarries = Number(row.carries ?? row.rush_carries ?? row.car ?? 0);
+            return sum + (Number.isNaN(rushCarries) ? 0 : rushCarries);
+          }, 0),
           yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushYards = row.rush_yds ?? row.rushing_yards ?? row.rush_yards ?? 0;
-            const numericValue = Number(rushYards);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
+            const rushYds = Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? row.yards ?? 0);
+            return sum + (Number.isNaN(rushYds) ? 0 : rushYds);
           }, 0),
           tds: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushTds = row.rush_tds ?? row.rushing_tds ?? row.rush_td ?? 0;
-            const numericValue = Number(rushTds);
-            return sum + (Number.isNaN(numericValue) ? 0 : numericValue);
+            const rushTds = Number(row.rush_tds ?? row.rush_td ?? row.rushing_tds ?? 0);
+            return sum + (Number.isNaN(rushTds) ? 0 : rushTds);
           }, 0),
         },
         receiving: {
