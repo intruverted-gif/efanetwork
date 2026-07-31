@@ -15,7 +15,8 @@ const supabase = supabaseUrl && supabaseKey
 // Returns full player profile: info, career totals, and per-game log.
 
 router.get('/players/:userId', async (req, res) => {
-  const userId = parseInt(req.params.userId, 10);
+  const rawUserId = req.params.userId;
+  const userId = parseInt(rawUserId, 10);
   if (isNaN(userId)) {
     res.status(400).json({ error: 'Invalid userId' });
     return;
@@ -31,8 +32,16 @@ router.get('/players/:userId', async (req, res) => {
     const { data: playerRows, error: playerError } = await supabase
       .from('player_stats')
       .select('user_id, display_name, headshot_url, category, season, team_name, completions, attempts, yards, tds, ints, carries, receptions, tackles, interceptions, sacks')
-      .or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`)
+      .or(`user_id.eq.${rawUserId},user_id.eq.${Number(userId)}`)
       .limit(200);
+
+    console.log('[player profile] player_stats query', {
+      rawUserId,
+      numericUserId: Number(userId),
+      playerError,
+      rowCount: playerRows?.length ?? 0,
+      rows: playerRows ?? [],
+    });
 
     if (playerError) {
       throw playerError;

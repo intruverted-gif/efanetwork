@@ -136,9 +136,17 @@ export default function PlayerProfile() {
   const { data, isLoading, isError } = useQuery<PlayerProfile>({
     queryKey: ['player', userId],
     queryFn: async () => {
+      console.log('[PlayerProfile] fetching player profile', { userId });
       const res = await fetch(`/api/players/${userId}`);
-      if (!res.ok) throw new Error('Not found');
-      return res.json();
+      console.log('[PlayerProfile] response', { userId, status: res.status, ok: res.ok });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error('[PlayerProfile] fetch failed', { userId, status: res.status, body });
+        throw new Error('Not found');
+      }
+      const payload = await res.json();
+      console.log('[PlayerProfile] payload', { userId, payload });
+      return payload;
     },
     enabled: !!userId,
   });
