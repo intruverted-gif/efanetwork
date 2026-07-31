@@ -20,8 +20,7 @@ export default async function handler(req, res) {
   try {
     const { matchId, homeTeam, awayTeam, season } = req.body;
     
-    const rawSeason = season ? String(season).toLowerCase().trim() : 'season 3';
-    const currentSeason = rawSeason.includes('3') ? 'season 3' : rawSeason;
+    const currentSeason = season ? String(season).trim() : 'SEASON 3';
     
     const rows = [];
     const playerDirectory = new Map();
@@ -31,20 +30,22 @@ export default async function handler(req, res) {
       const players = teamData?.players || [];
 
       for (const player of players) {
-        const userId = Number(player.robloxId) || 0;
-        const displayName = player.name || 'Unknown';
+        const userId = Number(player.userId || player.robloxId || player.roblox_id || player.id) || 0;
+        const displayName = player.name || player.username || player.displayName || 'Unknown';
         
-        const headshotUrl = userId > 0 
-          ? `https://tr.rbxcdn.com/30DAY-AvatarHeadshot-${userId}-150x150-Png/150/150/AvatarHeadshot/Png`
-          : '';
+        const headshotUrl = player.headshotUrl || player.avatarUrl || 
+          (userId > 0 ? `https://tr.rbxcdn.com/30DAY-AvatarHeadshot-${userId}-150x150-Png/150/150/AvatarHeadshot/Png` : '');
 
         if (userId > 0) {
           playerDirectory.set(userId, {
+            id: userId,
             user_id: userId,
             roblox_id: userId,
             display_name: displayName,
+            username: displayName,
             team_name: teamName,
-            headshot_url: headshotUrl
+            headshot_url: headshotUrl,
+            avatar_url: headshotUrl
           });
         }
 
@@ -63,9 +64,11 @@ export default async function handler(req, res) {
         if (passComp > 0 || passAtt > 0 || passYds > 0 || passTds > 0 || passInts > 0) {
           rows.push({
             user_id: userId,
+            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
+            avatar_url: headshotUrl,
             category: 'passing',
             season: currentSeason,
             completions: passComp,
@@ -88,9 +91,11 @@ export default async function handler(req, res) {
         if (rushCar > 0 || rushYds > 0 || rushTds > 0) {
           rows.push({
             user_id: userId,
+            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
+            avatar_url: headshotUrl,
             category: 'rushing',
             season: currentSeason,
             carries: rushCar,
@@ -113,9 +118,11 @@ export default async function handler(req, res) {
         if (recRec > 0 || recYds > 0 || recTds > 0) {
           rows.push({
             user_id: userId,
+            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
+            avatar_url: headshotUrl,
             category: 'receiving',
             season: currentSeason,
             receptions: recRec,
@@ -138,9 +145,11 @@ export default async function handler(req, res) {
         if (defTkl > 0 || defSck > 0 || defInt > 0) {
           rows.push({
             user_id: userId,
+            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
+            avatar_url: headshotUrl,
             category: 'defense',
             season: currentSeason,
             tackles: defTkl,
