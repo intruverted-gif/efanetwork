@@ -5,8 +5,6 @@ import { TEAMS } from '../data/schedule';
 import { getAwardsForPlayer, getRingsForPlayer } from '../data/legacyAwards';
 import { supabase } from '../lib/supabase';
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
 interface GameEntry {
   matchId: string;
   season: number;
@@ -39,8 +37,6 @@ interface PlayerProfile {
   games: GameEntry[];
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Ccircle cx='40' cy='40' r='40' fill='%23374151'/%3E%3Ctext x='40' y='52' text-anchor='middle' fill='%23d1d5db' font-size='36' font-family='sans-serif'%3E%3F%3C/text%3E%3C/svg%3E";
 
 function fuzzyTeam(name: string | null) {
@@ -52,7 +48,6 @@ function fuzzyTeam(name: string | null) {
   return null;
 }
 
-/** Derive the player's primary position from career totals. */
 function derivePosition(ct: CareerTotals): string {
   const scores = [
     { pos: 'QB', score: ct.passing.yards + ct.passing.tds * 10 },
@@ -64,7 +59,6 @@ function derivePosition(ct: CareerTotals): string {
   return best.score > 0 ? best.pos : '—';
 }
 
-/** Format a matchId/date into a compact label. */
 function gameLabel(matchId: string, exportedAt: string): string {
   const wkMatch = matchId.match(/w(?:ee?k?)?[\-_]?(\d+)/i);
   if (wkMatch) return `WK ${wkMatch[1]}`;
@@ -72,7 +66,6 @@ function gameLabel(matchId: string, exportedAt: string): string {
   return isNaN(d.getTime()) ? matchId.slice(0, 8) : `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** Dynamic property extractor for inconsistent DB row schema */
 function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regexPatterns: RegExp[]): number {
   for (const key of exactKeys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
@@ -92,8 +85,6 @@ function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regex
 
   return 0;
 }
-
-// ── Stat row renderers ────────────────────────────────────────────────────────
 
 function PassingRow({ p }: { p: NonNullable<GameEntry['passing']> }) {
   if (!p || (p.yards === 0 && p.tds === 0 && p.completions === 0)) return null;
@@ -147,8 +138,6 @@ function DefenseRow({ d }: { d: NonNullable<GameEntry['defense']> }) {
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-
 export default function PlayerProfile() {
   const params = useParams<{ userId: string }>();
   const userId = params.userId;
@@ -172,7 +161,6 @@ export default function PlayerProfile() {
 
       const first = data[0] as Record<string, any>;
 
-      // Debug output to directly inspect database structure in browser console
       console.log('=== DB SCHEMAS FOR PLAYER_STATS ===');
       console.log('Row sample:', first);
       console.log('All keys:', Object.keys(first));
@@ -209,7 +197,7 @@ export default function PlayerProfile() {
         carries += getValueByPatterns(
           row,
           ['carries', 'rush_carries', 'car', 'att_rush'],
-          [/carr/, /car/ drops => false]
+          [/carr/, /car/]
         );
 
         tackles += getValueByPatterns(row, ['tackles', 'tkl'], [/tkl/, /tackle/]);
@@ -291,8 +279,6 @@ export default function PlayerProfile() {
 
   return (
     <div className="pp-page">
-
-      {/* ── Hero header ─────────────────────────────────────────── */}
       <div className="pp-hero">
         <img
           className="pp-hero-avatar"
@@ -327,7 +313,6 @@ export default function PlayerProfile() {
           )}
         </div>
 
-        {/* Quick stats top-right */}
         <div className="pp-hero-quick">
           <div className="pp-quick-stat">
             <span className="pp-quick-val">{ct.gamesPlayed}</span>
@@ -360,10 +345,7 @@ export default function PlayerProfile() {
         </div>
       </div>
 
-      {/* ── Body: game log + sidebar ─────────────────────────────── */}
       <div className="pp-body">
-
-        {/* Game log */}
         <div className="pp-main">
           <div className="pp-section-card">
             <div className="pp-section-head">
@@ -382,7 +364,6 @@ export default function PlayerProfile() {
 
               return (
                 <div key={game.matchId} className="pp-game-entry">
-                  {/* Game header row */}
                   <div className="pp-game-header">
                     <span className="pp-game-wk">{wkLabel}</span>
                     <span className="pp-game-vs">@</span>
@@ -399,7 +380,6 @@ export default function PlayerProfile() {
                     <Link href={`/scores/${game.matchId}`} className="pp-game-box-link">box score →</Link>
                   </div>
 
-                  {/* Stat rows */}
                   {hasStats ? (
                     <div className="pp-game-stats">
                       {game.passing  && <PassingRow  p={game.passing}  />}
@@ -416,10 +396,7 @@ export default function PlayerProfile() {
           </div>
         </div>
 
-        {/* Sidebar */}
         <div className="pp-sidebar">
-
-          {/* Player Info */}
           <div className="pp-section-card">
             <div className="pp-section-head">
               <h2 className="pp-section-title">Player Info</h2>
@@ -446,7 +423,6 @@ export default function PlayerProfile() {
             </div>
           </div>
 
-          {/* Career Stats */}
           <div className="pp-section-card">
             <div className="pp-section-head">
               <h2 className="pp-section-title">Career Stats</h2>
@@ -505,7 +481,6 @@ export default function PlayerProfile() {
             </div>
           </div>
 
-          {/* Legacy Awards */}
           {legacyAwards.length > 0 && (
             <div className="pp-section-card">
               <div className="pp-section-head">
