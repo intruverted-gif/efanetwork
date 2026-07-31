@@ -2,8 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearch, Link } from 'wouter';
 import { TEAMS } from '../data/schedule';
-
-// ── Types ────────────────────────────────────────────────────────────────────
+import { supabase } from '../lib/supabase';
 
 type Category = 'passing' | 'rushing' | 'receiving' | 'defense';
 type Season = 'all' | '1' | '2' | '3';
@@ -13,17 +12,11 @@ interface PlayerRow {
   display_name: string;
   headshot_url: string | null;
   team_name: string | null;
-  // passing
   completions?: number; attempts?: number; ints?: number; sacked?: number;
-  // rushing
   carries?: number;
-  // shared
   yards?: number; tds?: number; receptions?: number;
-  // defense
-  tackles?: number; interceptions?: number;
+  tackles?: number; interceptions?: number; sacks?: number;
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fuzzyTeam(name: string | null) {
   if (!name) return null;
@@ -37,8 +30,6 @@ function fuzzyTeam(name: string | null) {
 }
 
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='%23374151'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='%23d1d5db' font-size='18' font-family='sans-serif'%3E%3F%3C/text%3E%3C/svg%3E";
-
-// ── Column configs ────────────────────────────────────────────────────────────
 
 const COLUMNS: Record<Category, { key: string; label: string; title?: string }[]> = {
   passing: [
@@ -73,8 +64,6 @@ const DEFAULT_SORT: Record<Category, string> = {
   defense: 'tackles',
 };
 
-// ── Component ─────────────────────────────────────────────────────────────────
-
 const VALID_CATEGORIES: Category[] = ['passing', 'rushing', 'receiving', 'defense'];
 
 export default function Stats() {
@@ -88,7 +77,6 @@ export default function Stats() {
   const [sortKey, setSortKey] = useState<string>(DEFAULT_SORT[initialCat]);
   const [sortDesc, setSortDesc] = useState(true);
 
-  // Sync if the URL param changes (e.g. clicking dropdown while already on /stats)
   useEffect(() => {
     const cat = paramCat && VALID_CATEGORIES.includes(paramCat) ? paramCat : 'passing';
     setCategory(cat);
@@ -99,9 +87,19 @@ export default function Stats() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['stats', category, season],
     queryFn: async () => {
-      const res = await fetch(`/api/stats?category=${category}&season=${season}`);
-      if (!res.ok) throw new Error('Failed to load stats');
-      return res.json() as Promise<{ players: PlayerRow[] }>;
+      let query = supabase
+        .from('player_stats')
+        .select('*')
+        .eq('category', category);
+
+      if (season !== 'all') {
+        query = query.eq('season', season);
+      }
+
+      const { data: rows, error } = await query;
+
+      if (error) throw error;
+      return { players: (rows || []) as PlayerRow[] };
     },
   });
 
@@ -149,11 +147,9 @@ export default function Stats() {
 
   return (
     <div className="stats-page">
-      {/* Header */}
       <div className="stats-header">
         <h1 className="stats-title">Player Stats</h1>
 
-        {/* Category tabs */}
         <div className="stats-cat-tabs">
           {CATEGORIES.map(({ key, label }) => (
             <button
@@ -166,7 +162,6 @@ export default function Stats() {
           ))}
         </div>
 
-        {/* Season filter */}
         <div className="stats-season-row">
           {SEASONS.map(({ key, label, corrupted }) => (
             <button
@@ -181,7 +176,6 @@ export default function Stats() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="stats-card">
         {isCorrupted && (
           <div className="stats-corrupted">
@@ -196,7 +190,7 @@ export default function Stats() {
           <div className="stats-empty">Loading stats…</div>
         )}
         {!isCorrupted && isError && (
-          <div className="stats-empty stats-empty--error">Failed to load stats. Is the API server running?</div>
+          <div className="stats-empty stats-empty--error">Failed to load stats from Supabase.</div>
         )}
         {!isCorrupted && !isLoading && !isError && players.length === 0 && (
           <div className="stats-empty">No {category} stats yet. Import matches via the Discord bot.</div>
