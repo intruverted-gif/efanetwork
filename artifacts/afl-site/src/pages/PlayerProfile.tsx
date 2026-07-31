@@ -67,10 +67,15 @@ function gameLabel(matchId: string, exportedAt: string): string {
 }
 
 function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regexPatterns: RegExp[]): number {
+  let fallbackZero: number | null = null;
+
   for (const key of exactKeys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
       const val = Number(row[key]);
-      if (!isNaN(val)) return val;
+      if (!isNaN(val)) {
+        if (val !== 0) return val;
+        if (fallbackZero === null) fallbackZero = 0;
+      }
     }
   }
 
@@ -79,11 +84,14 @@ function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regex
     const lowerKey = key.toLowerCase();
     if (regexPatterns.some((pattern) => pattern.test(lowerKey))) {
       const val = Number(rawValue);
-      if (!isNaN(val)) return val;
+      if (!isNaN(val)) {
+        if (val !== 0) return val;
+        if (fallbackZero === null) fallbackZero = 0;
+      }
     }
   }
 
-  return 0;
+  return fallbackZero ?? 0;
 }
 
 function PassingRow({ p }: { p: NonNullable<GameEntry['passing']> }) {
@@ -178,31 +186,63 @@ export default function PlayerProfile() {
       let sacks = 0;
 
       (data || []).forEach((row: Record<string, any>) => {
-        passYds += getValueByPatterns(row, ['yards', 'pass_yds', 'passing_yards', 'pass_yards'], [/pass.*yd/, /pass.*yard/]);
-        passTds += getValueByPatterns(row, ['pass_tds', 'passing_tds', 'pass_td'], [/pass.*td/]);
-        completions += getValueByPatterns(row, ['completions', 'comp'], [/comp/]);
-        attempts += getValueByPatterns(row, ['attempts', 'att'], [/att/]);
-        passInts += getValueByPatterns(row, ['pass_int', 'int'], [/pass.*int/]);
+        passYds += getValueByPatterns(
+          row,
+          ['pass_yds', 'passing_yards', 'pass_yards', 'yards', 'p_yds', 'pass_yd'],
+          [/pass.*yd/, /pass.*yard/, /^p_?yds?$/]
+        );
+        passTds += getValueByPatterns(
+          row,
+          ['pass_tds', 'passing_tds', 'pass_td', 'p_tds'],
+          [/pass.*td/, /^p_?tds?$/]
+        );
+        completions += getValueByPatterns(
+          row,
+          ['completions', 'comp', 'cmp', 'pass_comp'],
+          [/comp/, /cmp/]
+        );
+        attempts += getValueByPatterns(
+          row,
+          ['attempts', 'att', 'pass_att'],
+          [/att/]
+        );
+        passInts += getValueByPatterns(
+          row,
+          ['pass_int', 'int', 'pass_ints'],
+          [/pass.*int/]
+        );
 
         rushYds += getValueByPatterns(
           row,
-          ['rush_yds', 'rush_yards', 'rushing_yards', 'rush_yd', 'rushing_yd', 'ryds', 'r_yds'],
-          [/rush.*yd/, /rush.*yard/, /^r_?yds?$/]
+          ['rush_yds', 'rush_yards', 'rushing_yards', 'rush_yd', 'rushing_yd', 'ryds', 'r_yds', 'r_yards', 'rushing', 'rush', 'rushyds', 'rushingyds'],
+          [/rush.*yd/, /rush.*yard/, /^r_?yds?$/, /^r_?yards?$/]
         );
         rushTds += getValueByPatterns(
           row,
-          ['rush_tds', 'rush_td', 'rushing_tds', 'rushing_td', 'rtds', 'r_tds'],
+          ['rush_tds', 'rush_td', 'rushing_tds', 'rushing_td', 'rtds', 'r_tds', 'r_td'],
           [/rush.*td/, /^r_?tds?$/]
         );
         carries += getValueByPatterns(
           row,
-          ['carries', 'rush_carries', 'car', 'att_rush'],
+          ['carries', 'rush_carries', 'car', 'att_rush', 'rushing_attempts'],
           [/carr/, /car/]
         );
 
-        tackles += getValueByPatterns(row, ['tackles', 'tkl'], [/tkl/, /tackle/]);
-        defInts += getValueByPatterns(row, ['def_ints', 'def_int'], [/def.*int/]);
-        sacks += getValueByPatterns(row, ['sacks', 'sck'], [/sack/, /sck/]);
+        tackles += getValueByPatterns(
+          row,
+          ['tackles', 'tkl', 'tackles_total'],
+          [/tkl/, /tackle/]
+        );
+        defInts += getValueByPatterns(
+          row,
+          ['def_ints', 'def_int', 'interceptions'],
+          [/def.*int/]
+        );
+        sacks += getValueByPatterns(
+          row,
+          ['sacks', 'sck'],
+          [/sack/, /sck/]
+        );
       });
 
       const aggregated: CareerTotals = {
