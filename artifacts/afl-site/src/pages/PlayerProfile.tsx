@@ -201,7 +201,7 @@ export default function PlayerProfile() {
             return sum + (Number.isNaN(rushCarries) ? 0 : rushCarries);
           }, 0),
           yards: data.reduce((sum: number, row: Record<string, any>) => {
-            const rushYds = Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? row.yards ?? 0);
+            const rushYds = Number(row.rush_yds ?? row.rush_yards ?? row.rushing_yards ?? 0);
             return sum + (Number.isNaN(rushYds) ? 0 : rushYds);
           }, 0),
           tds: data.reduce((sum: number, row: Record<string, any>) => {
