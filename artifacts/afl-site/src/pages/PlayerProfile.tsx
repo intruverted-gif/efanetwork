@@ -133,7 +133,7 @@ export default function PlayerProfile() {
   const params = useParams<{ userId: string }>();
   const userId = params.userId;
 
-  const { data, isLoading, isError } = useQuery<PlayerProfile>({
+  const { data, isLoading, isError } = useQuery<PlayerProfile | null>({
     queryKey: ['player', userId],
     queryFn: async () => {
       console.log('[PlayerProfile] fetching player profile', { userId });
@@ -145,8 +145,25 @@ export default function PlayerProfile() {
         throw new Error('Not found');
       }
       const payload = await res.json();
-      console.log('[PlayerProfile] payload', { userId, payload });
-      return payload;
+      console.log('[PlayerProfile] parsed data:', payload);
+
+      if (payload === null || payload === undefined || payload === '') {
+        return null;
+      }
+
+      if (typeof payload === 'object' && 'player' in payload && payload.player) {
+        return payload.player as PlayerProfile;
+      }
+
+      if (typeof payload === 'object' && 'stats' in payload && Array.isArray(payload.stats)) {
+        return payload as PlayerProfile;
+      }
+
+      if (Array.isArray(payload)) {
+        return payload[0] as PlayerProfile;
+      }
+
+      return payload as PlayerProfile;
     },
     enabled: !!userId,
   });
@@ -164,7 +181,7 @@ export default function PlayerProfile() {
     );
   }
 
-  if (isError || !data) {
+  if (isError || data === null) {
     return (
       <div className="pp-page">
         <div className="pp-error">
