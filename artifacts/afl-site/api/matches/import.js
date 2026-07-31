@@ -33,7 +33,7 @@ export default async function handler(req, res) {
         const userId = Number(player.userId || player.robloxId || player.roblox_id || player.id) || 0;
         const displayName = player.name || player.username || player.displayName || 'Unknown';
         
-        const headshotUrl = player.headshotUrl || player.avatarUrl || 
+        const headshotUrl = player.headshotUrl || 
           (userId > 0 ? `https://tr.rbxcdn.com/30DAY-AvatarHeadshot-${userId}-150x150-Png/150/150/AvatarHeadshot/Png` : '');
 
         if (userId > 0) {
@@ -44,8 +44,7 @@ export default async function handler(req, res) {
             display_name: displayName,
             username: displayName,
             team_name: teamName,
-            headshot_url: headshotUrl,
-            avatar_url: headshotUrl
+            headshot_url: headshotUrl
           });
         }
 
@@ -68,7 +67,6 @@ export default async function handler(req, res) {
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
-            avatar_url: headshotUrl,
             category: 'passing',
             season: currentSeason,
             completions: passComp,
@@ -95,7 +93,6 @@ export default async function handler(req, res) {
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
-            avatar_url: headshotUrl,
             category: 'rushing',
             season: currentSeason,
             carries: rushCar,
@@ -122,7 +119,6 @@ export default async function handler(req, res) {
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
-            avatar_url: headshotUrl,
             category: 'receiving',
             season: currentSeason,
             receptions: recRec,
@@ -149,7 +145,6 @@ export default async function handler(req, res) {
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
-            avatar_url: headshotUrl,
             category: 'defense',
             season: currentSeason,
             tackles: defTkl,
