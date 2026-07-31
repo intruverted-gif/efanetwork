@@ -31,15 +31,20 @@ router.get('/players/:userId', async (req, res) => {
     const { data: playerRows, error: playerError } = await supabase
       .from('player_stats')
       .select('user_id, display_name, headshot_url, category, season, team_name, completions, attempts, yards, tds, ints, carries, receptions, tackles, interceptions, sacks')
-      .eq('user_id', userId)
-      .limit(50);
+      .or(`user_id.eq.${userId},user_id.eq.${Number(userId)}`)
+      .limit(200);
 
-    if (playerError || !playerRows || playerRows.length === 0) {
+    if (playerError) {
+      throw playerError;
+    }
+
+    const player = playerRows?.[0];
+    const statsRows = playerRows ?? [];
+
+    if (!player || statsRows.length === 0) {
       res.status(404).json({ error: 'Player not found' });
       return;
     }
-
-    const player = playerRows[0];
 
     // 2. All games for this player (ordered newest first)
     const gamesRes = await pool.query(`
@@ -86,56 +91,34 @@ router.get('/players/:userId', async (req, res) => {
     });
 
     // 3. Latest team (most recent game)
-    const teamName = games.length > 0 ? games[0].myTeamName : null;
+    const teamName = games.length > 0 ? games[0].myTeamName : (player.team_name ?? null);
 
-    // 4. Career totals
-    const totalsRes = await pool.query(`
-      SELECT
-        COALESCE(SUM((mp.passing->>'completions')::int), 0)   AS pass_completions,
-        COALESCE(SUM((mp.passing->>'attempts')::int), 0)      AS pass_attempts,
-        COALESCE(SUM((mp.passing->>'yards')::int), 0)         AS pass_yards,
-        COALESCE(SUM((mp.passing->>'tds')::int), 0)           AS pass_tds,
-        COALESCE(SUM((mp.passing->>'ints')::int), 0)          AS pass_ints,
-        COALESCE(SUM((mp.rushing->>'carries')::int), 0)       AS rush_carries,
-        COALESCE(SUM((mp.rushing->>'yards')::int), 0)         AS rush_yards,
-        COALESCE(SUM((mp.rushing->>'tds')::int), 0)           AS rush_tds,
-        COALESCE(SUM((mp.receiving->>'receptions')::int), 0)  AS rec_receptions,
-        COALESCE(SUM((mp.receiving->>'yards')::int), 0)       AS rec_yards,
-        COALESCE(SUM((mp.receiving->>'tds')::int), 0)         AS rec_tds,
-        COALESCE(SUM((mp.defense->>'tackles')::int), 0)       AS def_tackles,
-        COALESCE(SUM((mp.defense->>'interceptions')::int), 0) AS def_ints,
-        COALESCE(SUM((mp.defense->>'sacks')::int), 0)         AS def_sacks,
-        COUNT(DISTINCT mp.match_id)                            AS games_played
-      FROM match_participants mp
-      WHERE mp.user_id = $1
-    `, [userId]);
-
-    const t = totalsRes.rows[0];
-    const careerTotals = {
-      gamesPlayed: parseInt(t.games_played, 10),
-      passing: {
-        completions: parseInt(t.pass_completions, 10),
-        attempts:    parseInt(t.pass_attempts, 10),
-        yards:       parseInt(t.pass_yards, 10),
-        tds:         parseInt(t.pass_tds, 10),
-        ints:        parseInt(t.pass_ints, 10),
-      },
-      rushing: {
-        carries: parseInt(t.rush_carries, 10),
-        yards:   parseInt(t.rush_yards, 10),
-        tds:     parseInt(t.rush_tds, 10),
-      },
-      receiving: {
-        receptions: parseInt(t.rec_receptions, 10),
-        yards:      parseInt(t.rec_yards, 10),
-        tds:        parseInt(t.rec_tds, 10),
-      },
-      defense: {
-        tackles:       parseInt(t.def_tackles, 10),
-        interceptions: parseInt(t.def_ints, 10),
-        sacks:         parseInt(t.def_sacks, 10),
-      },
-    };
+    // 4. Career totals aggregated from the matching player_stats rows
+    const careerTotals = statsRows.reduce((acc, row) => {
+      const addValue = (value: unknown) => (typeof value === 'number' ? value : Number(value ?? 0));
+      acc.gamesPlayed += 1;
+      acc.passing.completions += addValue(row.completions);
+      acc.passing.attempts += addValue(row.attempts);
+      acc.passing.yards += addValue(row.yards);
+      acc.passing.tds += addValue(row.tds);
+      acc.passing.ints += addValue(row.ints);
+      acc.rushing.carries += addValue(row.carries);
+      acc.rushing.yards += addValue(row.yards);
+      acc.rushing.tds += addValue(row.tds);
+      acc.receiving.receptions += addValue(row.receptions);
+      acc.receiving.yards += addValue(row.yards);
+      acc.receiving.tds += addValue(row.tds);
+      acc.defense.tackles += addValue(row.tackles);
+      acc.defense.interceptions += addValue(row.interceptions);
+      acc.defense.sacks += addValue(row.sacks);
+      return acc;
+    }, {
+      gamesPlayed: 0,
+      passing: { completions: 0, attempts: 0, yards: 0, tds: 0, ints: 0 },
+      rushing: { carries: 0, yards: 0, tds: 0 },
+      receiving: { receptions: 0, yards: 0, tds: 0 },
+      defense: { tackles: 0, interceptions: 0, sacks: 0 },
+    });
 
     res.json({
       userId: userId,
