@@ -200,8 +200,6 @@ export default function PlayerProfile() {
         }
       });
 
-      const rushAvg = totalRushCarries > 0 ? (totalRushYards / totalRushCarries).toFixed(1) : '0.0';
-
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
         passing: {
@@ -299,6 +297,7 @@ export default function PlayerProfile() {
 
   const { displayName, headshotUrl, careerTotals, games } = data;
   const ct = careerTotals;
+  const rushAvg = ct.rushing.carries > 0 ? (ct.rushing.yards / ct.rushing.carries).toFixed(1) : '0.0';
 
   const hasPassingCareer = ct.passing.completions > 0 || ct.passing.attempts > 0 || ct.passing.yards > 0 || ct.passing.tds > 0 || ct.passing.ints > 0;
   const hasRushingCareer = ct.rushing.carries > 0 || ct.rushing.yards > 0 || ct.rushing.tds > 0;
