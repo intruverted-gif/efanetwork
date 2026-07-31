@@ -156,6 +156,8 @@ export default function PlayerProfile() {
       }
 
       const first = data[0] as Record<string, any>;
+      console.log('[PlayerProfile] AVAILABLE PLAYER_STATS KEYS:', Object.keys(first ?? {}));
+
       const sumNumeric = (row: Record<string, any>, keys: string[]) => {
         for (const key of keys) {
           const rawValue = row[key];
@@ -172,29 +174,33 @@ export default function PlayerProfile() {
         return 0;
       };
 
+      const sumFromRows = (rows: Record<string, any>[], keys: string[]) => {
+        return rows.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, keys), 0);
+      };
+
       const aggregated: CareerTotals = {
         gamesPlayed: data.length,
         passing: {
-          completions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.completions ?? 0), 0),
-          attempts: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.attempts ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['passing_yards', 'pass_yds', 'pass_yards']), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['passing_touchdowns', 'passing_tds', 'pass_tds']), 0),
-          ints: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.ints ?? 0), 0),
+          completions: sumFromRows(data, ['completions', 'comp', 'passing_completions', 'pass_completions', 'cmp']),
+          attempts: sumFromRows(data, ['attempts', 'att', 'passing_attempts', 'pass_attempts', 'pass_att']),
+          yards: sumFromRows(data, ['passing_yards', 'pass_yds', 'pass_yards']),
+          tds: sumFromRows(data, ['passing_touchdowns', 'passing_tds', 'pass_tds']),
+          ints: sumFromRows(data, ['ints', 'int', 'interceptions', 'passing_interceptions']),
         },
         rushing: {
-          carries: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.carries ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['rushing_yards', 'rush_yds', 'rush_yards']), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['rushing_touchdowns', 'rushing_tds', 'rush_tds']), 0),
+          carries: sumFromRows(data, ['carries', 'rush_attempts', 'rush_att', 'rush_carries']),
+          yards: sumFromRows(data, ['rushing_yards', 'rush_yds', 'rush_yards']),
+          tds: sumFromRows(data, ['rushing_touchdowns', 'rushing_tds', 'rush_tds']),
         },
         receiving: {
-          receptions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.receptions ?? 0), 0),
-          yards: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['receiving_yards', 'rec_yds', 'receiving_yards', 'rec_yards']), 0),
-          tds: data.reduce((sum: number, row: Record<string, any>) => sum + sumNumeric(row, ['receiving_touchdowns', 'receiving_tds', 'rec_tds']), 0),
+          receptions: sumFromRows(data, ['receptions', 'rec', 'receiving_receptions', 'rec_receptions']),
+          yards: sumFromRows(data, ['receiving_yards', 'rec_yds', 'rec_yards']),
+          tds: sumFromRows(data, ['receiving_touchdowns', 'receiving_tds', 'rec_tds']),
         },
         defense: {
-          tackles: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.tackles ?? 0), 0),
-          interceptions: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.interceptions ?? 0), 0),
-          sacks: data.reduce((sum: number, row: Record<string, any>) => sum + Number(row.sacks ?? 0), 0),
+          tackles: sumFromRows(data, ['tackles', 'def_tackles', 'total_tackles']),
+          interceptions: sumFromRows(data, ['interceptions', 'ints', 'def_interceptions']),
+          sacks: sumFromRows(data, ['sacks', 'def_sacks']),
         },
       };
 
@@ -238,10 +244,10 @@ export default function PlayerProfile() {
   const { displayName, headshotUrl, careerTotals, games } = data;
   const ct = careerTotals;
 
-  const hasPassingCareer  = ct.passing.yards > 0 || ct.passing.tds > 0;
-  const hasRushingCareer  = ct.rushing.yards > 0 || ct.rushing.tds > 0;
-  const hasReceivingCareer = ct.receiving.yards > 0 || ct.receiving.tds > 0;
-  const hasDefenseCareer  = ct.defense.tackles > 0 || ct.defense.interceptions > 0 || ct.defense.sacks > 0;
+  const hasPassingCareer = ct.passing.completions > 0 || ct.passing.attempts > 0 || ct.passing.yards > 0 || ct.passing.tds > 0 || ct.passing.ints > 0;
+  const hasRushingCareer = ct.rushing.carries > 0 || ct.rushing.yards > 0 || ct.rushing.tds > 0;
+  const hasReceivingCareer = ct.receiving.receptions > 0 || ct.receiving.yards > 0 || ct.receiving.tds > 0;
+  const hasDefenseCareer = ct.defense.tackles > 0 || ct.defense.interceptions > 0 || ct.defense.sacks > 0;
 
   return (
     <div className="pp-page">
