@@ -66,32 +66,14 @@ function gameLabel(matchId: string, exportedAt: string): string {
   return isNaN(d.getTime()) ? matchId.slice(0, 8) : `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function getValueByPatterns(row: Record<string, any>, exactKeys: string[], regexPatterns: RegExp[]): number {
-  let fallbackZero: number | null = null;
-
-  for (const key of exactKeys) {
-    if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-      const val = Number(row[key]);
-      if (!isNaN(val)) {
-        if (val !== 0) return val;
-        if (fallbackZero === null) fallbackZero = 0;
-      }
-    }
-  }
-
-  for (const [key, rawValue] of Object.entries(row)) {
-    if (rawValue === null || rawValue === undefined || rawValue === '') continue;
-    const lowerKey = key.toLowerCase();
-    if (regexPatterns.some((pattern) => pattern.test(lowerKey))) {
-      const val = Number(rawValue);
-      if (!isNaN(val)) {
-        if (val !== 0) return val;
-        if (fallbackZero === null) fallbackZero = 0;
-      }
-    }
-  }
-
-  return fallbackZero ?? 0;
+// Normalize category strings so we don't get tripped up by casing/pluralization
+function normalizeCategory(cat: string | null | undefined): string {
+  const c = (cat ?? '').toLowerCase().trim();
+  if (c.startsWith('pass')) return 'passing';
+  if (c.startsWith('rush')) return 'rushing';
+  if (c.startsWith('rec')) return 'receiving';
+  if (c.startsWith('def')) return 'defense';
+  return c;
 }
 
 function PassingRow({ p }: { p: NonNullable<GameEntry['passing']> }) {
@@ -169,10 +151,6 @@ export default function PlayerProfile() {
 
       const first = data[0] as Record<string, any>;
 
-      console.log('=== DB SCHEMAS FOR PLAYER_STATS ===');
-      console.log('Row sample:', first);
-      console.log('All keys:', Object.keys(first));
-
       let passYds = 0;
       let passTds = 0;
       let completions = 0;
@@ -181,68 +159,46 @@ export default function PlayerProfile() {
       let rushYds = 0;
       let rushTds = 0;
       let carries = 0;
+      let recYds = 0;
+      let recTds = 0;
+      let receptions = 0;
       let tackles = 0;
       let defInts = 0;
       let sacks = 0;
 
       (data || []).forEach((row: Record<string, any>) => {
-        passYds += getValueByPatterns(
-          row,
-          ['pass_yds', 'passing_yards', 'pass_yards', 'yards', 'p_yds', 'pass_yd'],
-          [/pass.*yd/, /pass.*yard/, /^p_?yds?$/]
-        );
-        passTds += getValueByPatterns(
-          row,
-          ['pass_tds', 'passing_tds', 'pass_td', 'p_tds'],
-          [/pass.*td/, /^p_?tds?$/]
-        );
-        completions += getValueByPatterns(
-          row,
-          ['completions', 'comp', 'cmp', 'pass_comp'],
-          [/comp/, /cmp/]
-        );
-        attempts += getValueByPatterns(
-          row,
-          ['attempts', 'att', 'pass_att'],
-          [/att/]
-        );
-        passInts += getValueByPatterns(
-          row,
-          ['pass_int', 'int', 'pass_ints'],
-          [/pass.*int/]
-        );
+        const cat = normalizeCategory(row.category);
 
-        rushYds += getValueByPatterns(
-          row,
-          ['rush_yds', 'rush_yards', 'rushing_yards', 'rush_yd', 'rushing_yd', 'ryds', 'r_yds', 'r_yards', 'rushing', 'rush', 'rushyds', 'rushingyds'],
-          [/rush.*yd/, /rush.*yard/, /^r_?yds?$/, /^r_?yards?$/]
-        );
-        rushTds += getValueByPatterns(
-          row,
-          ['rush_tds', 'rush_td', 'rushing_tds', 'rushing_td', 'rtds', 'r_tds', 'r_td'],
-          [/rush.*td/, /^r_?tds?$/]
-        );
-        carries += getValueByPatterns(
-          row,
-          ['carries', 'rush_carries', 'car', 'att_rush', 'rushing_attempts'],
-          [/carr/, /car/]
-        );
+        switch (cat) {
+          case 'passing':
+            completions += Number(row.completions) || 0;
+            attempts += Number(row.attempts) || 0;
+            passYds += Number(row.yards) || 0;
+            passTds += Number(row.tds) || 0;
+            passInts += Number(row.interceptions) || 0;
+            break;
 
-        tackles += getValueByPatterns(
-          row,
-          ['tackles', 'tkl', 'tackles_total'],
-          [/tkl/, /tackle/]
-        );
-        defInts += getValueByPatterns(
-          row,
-          ['def_ints', 'def_int', 'interceptions'],
-          [/def.*int/]
-        );
-        sacks += getValueByPatterns(
-          row,
-          ['sacks', 'sck'],
-          [/sack/, /sck/]
-        );
+          case 'rushing':
+            carries += Number(row.carries) || 0;
+            rushYds += Number(row.yards) || 0;
+            rushTds += Number(row.tds) || 0;
+            break;
+
+          case 'receiving':
+            receptions += Number(row.receptions) || 0;
+            recYds += Number(row.yards) || 0;
+            recTds += Number(row.tds) || 0;
+            break;
+
+          case 'defense':
+            tackles += Number(row.tackles) || 0;
+            defInts += Number(row.interceptions) || 0;
+            sacks += Number(row.sacks) || 0;
+            break;
+
+          default:
+            console.warn('Unrecognized category in player_stats row:', row.category, row);
+        }
       });
 
       const aggregated: CareerTotals = {
@@ -260,9 +216,9 @@ export default function PlayerProfile() {
           tds: rushTds,
         },
         receiving: {
-          receptions: 0,
-          yards: 0,
-          tds: 0,
+          receptions,
+          yards: recYds,
+          tds: recTds,
         },
         defense: {
           tackles,
