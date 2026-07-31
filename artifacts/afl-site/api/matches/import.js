@@ -63,7 +63,6 @@ export default async function handler(req, res) {
         if (passComp > 0 || passAtt > 0 || passYds > 0 || passTds > 0 || passInts > 0) {
           rows.push({
             user_id: userId,
-            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
@@ -89,7 +88,6 @@ export default async function handler(req, res) {
         if (rushCar > 0 || rushYds > 0 || rushTds > 0) {
           rows.push({
             user_id: userId,
-            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
@@ -115,7 +113,6 @@ export default async function handler(req, res) {
         if (recRec > 0 || recYds > 0 || recTds > 0) {
           rows.push({
             user_id: userId,
-            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
@@ -141,7 +138,6 @@ export default async function handler(req, res) {
         if (defTkl > 0 || defSck > 0 || defInt > 0) {
           rows.push({
             user_id: userId,
-            roblox_id: userId,
             display_name: displayName,
             team_name: teamName,
             headshot_url: headshotUrl,
