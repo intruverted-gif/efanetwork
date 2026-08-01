@@ -3,6 +3,7 @@ import { useQuery, useQueries } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { TEAMS, SCHEDULE } from '../data/schedule';
 import { VIDEOS } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,65 @@ function getCategoryScore(category: string, players: PlayerRow[]) {
   }));
 }
 
+async function fetchPlayerStats(category: string, season: string) {
+  let query = supabase.from('player_stats').select('*').eq('category', category);
+
+  if (season !== 'all') {
+    query = query.or(
+      `season.eq.${season},season.eq.${String(season)},season.ilike.%${String(season).toLowerCase()}%`
+    );
+  }
+
+  const { data: rows, error } = await query;
+  if (error) throw error;
+
+  const groupedRows = new Map<string, PlayerRow>();
+  for (const row of (rows || []) as Array<Record<string, unknown>>) {
+    const userId = Number(row.user_id);
+    if (!Number.isFinite(userId)) continue;
+
+    const normalizedSeason = String(row.season ?? '').trim().toLowerCase();
+    const key = `${userId}:${category}:${normalizedSeason}`;
+    const existing = groupedRows.get(key);
+
+    const aggregated: PlayerRow = {
+      user_id: userId,
+      display_name: String(row.display_name ?? 'Unknown'),
+      headshot_url: (row.headshot_url ?? null) as string | null,
+      team_name: (row.team_name ?? null) as string | null,
+      completions: Number(row.completions) || 0,
+      attempts: Number(row.attempts) || 0,
+      ints: Number(row.ints) || 0,
+      carries: Number(row.carries) || 0,
+      yards: Number(row.yards) || 0,
+      tds: Number(row.tds) || 0,
+      receptions: Number(row.receptions) || 0,
+      tackles: Number(row.tackles) || 0,
+      interceptions: Number(row.interceptions) || 0,
+      sacks: Number(row.sacks) || 0,
+    };
+
+    if (!existing) {
+      groupedRows.set(key, aggregated);
+      continue;
+    }
+
+    existing.completions = (existing.completions || 0) + (aggregated.completions || 0);
+    existing.attempts = (existing.attempts || 0) + (aggregated.attempts || 0);
+    existing.ints = (existing.ints || 0) + (aggregated.ints || 0);
+    existing.carries = (existing.carries || 0) + (aggregated.carries || 0);
+    existing.yards = (existing.yards || 0) + (aggregated.yards || 0);
+    existing.tds = (existing.tds || 0) + (aggregated.tds || 0);
+    existing.receptions = (existing.receptions || 0) + (aggregated.receptions || 0);
+    existing.tackles = (existing.tackles || 0) + (aggregated.tackles || 0);
+    existing.interceptions = (existing.interceptions || 0) + (aggregated.interceptions || 0);
+    existing.sacks = (existing.sacks || 0) + (aggregated.sacks || 0);
+    existing.team_name = existing.team_name || aggregated.team_name;
+  }
+
+  return { players: Array.from(groupedRows.values()) };
+}
+
 function fuzzyTeam(name: string | null) {
   if (!name) return null;
   const lower = name.toLowerCase();
@@ -153,9 +213,7 @@ export default function Home() {
     queries: (['passing', 'rushing', 'receiving', 'defense'] as const).map(cat => ({
       queryKey: ['home', 'stats', cat, '3'],
       queryFn: async () => {
-        const res = await fetch(`/api/stats?category=${cat}&season=3`);
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json() as { players: PlayerRow[] };
+        const data = await fetchPlayerStats(cat, '3');
         return { category: cat, players: data.players };
       },
       refetchInterval: 30_000,
@@ -214,11 +272,7 @@ export default function Home() {
   // ── Stat leaders ──────────────────────────────────────────────────────────
   const { data: leaderData, isLoading: leaderLoading } = useQuery({
     queryKey: ['home', 'stats', selectedOpt.category, '3'],
-    queryFn: async () => {
-      const res = await fetch(`/api/stats?category=${selectedOpt.category}&season=3`);
-      if (!res.ok) throw new Error('Failed');
-      return res.json() as Promise<{ players: PlayerRow[] }>;
-    },
+    queryFn: async () => fetchPlayerStats(selectedOpt.category, '3'),
     refetchInterval: 30_000,
     staleTime: 20_000,
   });
