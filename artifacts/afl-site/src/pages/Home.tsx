@@ -30,6 +30,67 @@ interface AwardPlayer {
 
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='%23374151'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='%23d1d5db' font-size='18' font-family='sans-serif'%3E%3F%3C/text%3E%3C/svg%3E";
 
+function getNumericValue(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function getCategoryScore(category: string, players: PlayerRow[]) {
+  const safePlayers = players.filter((player) => Number.isFinite(Number(player.user_id)));
+  const maxes: Record<string, number> = {};
+
+  const statKeys: Record<string, string[]> = {
+    passing: ['yards', 'tds', 'completions'],
+    rushing: ['yards', 'tds', 'carries'],
+    receiving: ['yards', 'tds', 'receptions'],
+    defense: ['tackles', 'interceptions', 'sacks'],
+  };
+
+  for (const key of statKeys[category] ?? []) {
+    const values = safePlayers.map((player) => getNumericValue((player as Record<string, unknown>)[key]));
+    maxes[key] = Math.max(...values, 0);
+  }
+
+  const negativeKeys: Record<string, string[]> = {
+    passing: ['ints'],
+  };
+
+  for (const key of negativeKeys[category] ?? []) {
+    const values = safePlayers.map((player) => getNumericValue((player as Record<string, unknown>)[key]));
+    maxes[key] = Math.max(...values, 0);
+  }
+
+  return new Map<number, number>(safePlayers.map((player) => {
+    const userId = Number(player.user_id);
+    let score = 0;
+
+    if (category === 'passing') {
+      const yardsScore = maxes.yards > 0 ? getNumericValue(player.yards) / maxes.yards : 0;
+      const tdsScore = maxes.tds > 0 ? getNumericValue(player.tds) / maxes.tds : 0;
+      const compScore = maxes.completions > 0 ? getNumericValue(player.completions) / maxes.completions : 0;
+      const intPenalty = maxes.ints > 0 ? getNumericValue(player.ints) / maxes.ints : 0;
+      score = (yardsScore * 0.5) + (tdsScore * 0.25) + (compScore * 0.15) + ((1 - intPenalty) * 0.1);
+    } else if (category === 'rushing') {
+      const yardsScore = maxes.yards > 0 ? getNumericValue(player.yards) / maxes.yards : 0;
+      const tdsScore = maxes.tds > 0 ? getNumericValue(player.tds) / maxes.tds : 0;
+      const carryScore = maxes.carries > 0 ? getNumericValue(player.carries) / maxes.carries : 0;
+      score = (yardsScore * 0.6) + (tdsScore * 0.25) + (carryScore * 0.15);
+    } else if (category === 'receiving') {
+      const yardsScore = maxes.yards > 0 ? getNumericValue(player.yards) / maxes.yards : 0;
+      const tdsScore = maxes.tds > 0 ? getNumericValue(player.tds) / maxes.tds : 0;
+      const recScore = maxes.receptions > 0 ? getNumericValue(player.receptions) / maxes.receptions : 0;
+      score = (yardsScore * 0.6) + (tdsScore * 0.25) + (recScore * 0.15);
+    } else {
+      const tackleScore = maxes.tackles > 0 ? getNumericValue(player.tackles) / maxes.tackles : 0;
+      const intScore = maxes.interceptions > 0 ? getNumericValue(player.interceptions) / maxes.interceptions : 0;
+      const sackScore = maxes.sacks > 0 ? getNumericValue(player.sacks) / maxes.sacks : 0;
+      score = (tackleScore * 0.35) + (intScore * 0.35) + (sackScore * 0.3);
+    }
+
+    return [userId, Math.max(0, score)];
+  }));
+}
+
 function fuzzyTeam(name: string | null) {
   if (!name) return null;
   const lower = name.toLowerCase();
@@ -90,7 +151,7 @@ export default function Home() {
   // ── Award Watch: fetch all 4 categories ──────────────────────────────────
   const awResults = useQueries({
     queries: (['passing', 'rushing', 'receiving', 'defense'] as const).map(cat => ({
-      queryKey: ['stats', cat, '3'],
+      queryKey: ['home', 'stats', cat, '3'],
       queryFn: async () => {
         const res = await fetch(`/api/stats?category=${cat}&season=3`);
         if (!res.ok) throw new Error('Failed');
@@ -106,28 +167,25 @@ export default function Home() {
     const validResults = awResults.filter((result): result is typeof result & { data: { category: string; players: PlayerRow[] } } => Boolean(result.data));
     if (validResults.length === 0) return [];
 
-    const n = (v: unknown) => Number(v) || 0;
     const map = new Map<number, AwardPlayer>();
 
     for (const result of validResults) {
       const { category, players } = result.data;
+      const categoryScores = getCategoryScore(category, players);
+
       for (const p of players) {
         const userId = Number(p.user_id);
         if (!Number.isFinite(userId)) continue;
 
-        let raw = 0;
+        const raw = categoryScores.get(userId) ?? 0;
         let pos = '';
         if (category === 'passing') {
-          raw = n(p.yards) * 0.06 + n(p.tds) * 10 + n(p.completions) * 0.4 - n(p.ints) * 5;
           pos = 'QB';
         } else if (category === 'rushing') {
-          raw = n(p.yards) * 0.12 + n(p.tds) * 10 + n(p.carries) * 0.5;
           pos = 'RB';
         } else if (category === 'receiving') {
-          raw = n(p.yards) * 0.12 + n(p.tds) * 10 + n(p.receptions) * 2;
           pos = 'WR';
         } else {
-          raw = n(p.tackles) * 2.5 + n(p.interceptions) * 10 + n(p.sacks) * 6;
           pos = 'DEF';
         }
 
@@ -155,7 +213,7 @@ export default function Home() {
 
   // ── Stat leaders ──────────────────────────────────────────────────────────
   const { data: leaderData, isLoading: leaderLoading } = useQuery({
-    queryKey: ['stats', selectedOpt.category, '3'],
+    queryKey: ['home', 'stats', selectedOpt.category, '3'],
     queryFn: async () => {
       const res = await fetch(`/api/stats?category=${selectedOpt.category}&season=3`);
       if (!res.ok) throw new Error('Failed');
