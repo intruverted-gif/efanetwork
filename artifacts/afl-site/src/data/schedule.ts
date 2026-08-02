@@ -104,13 +104,13 @@ export const SCHEDULE: Record<string, Game[]> = {
     { home: 'corner-canyon', away: 'carroll',       homeScore: 14, awayScore: 6 },
     { home: 'san-marco',     away: 'west-bacon',    homeScore: 20, awayScore: 26 },
     { home: 'deverx',        away: 'huffman',       homeScore: 28, awayScore: 24 },
-    { home: 'bishop-gorman', away: 'cascade',       homeScore: 0, awayScore: 21 },
+    { home: 'bishop-gorman', away: 'cascade',       homeScore: 21, awayScore: 0 },
   ],
   week3: [
     { home: 'carroll',       away: 'west-bacon',    homeScore: null, awayScore: null },
     { home: 'huffman',       away: 'corner-canyon', homeScore: null, awayScore: null },
     { home: 'san-marco',     away: 'bishop-gorman', homeScore: null, awayScore: null },
-    { home: 'cascade',       away: 'deverx',        homeScore: null, awayScore: null },
+    { home: 'cascade',       away: 'deverx',        homeScore: 20, awayScore: 26 },
   ],
   week4: [
     { home: 'huffman',       away: 'carroll',       homeScore: null, awayScore: null },

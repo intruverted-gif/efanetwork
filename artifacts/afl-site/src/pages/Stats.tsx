@@ -31,6 +31,25 @@ function fuzzyTeam(name: string | null) {
 
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='%23374151'/%3E%3Ctext x='20' y='26' text-anchor='middle' fill='%23d1d5db' font-size='18' font-family='sans-serif'%3E%3F%3C/text%3E%3C/svg%3E";
 
+function normalizePlayerName(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getPlayerAggregateKey(userId: unknown, displayName: unknown) {
+  const parsedId = Number(userId);
+  const normalizedName = normalizePlayerName(displayName);
+
+  if (Number.isFinite(parsedId) && parsedId > 0) {
+    return `user:${parsedId}`;
+  }
+
+  if (normalizedName) {
+    return `name:${normalizedName}`;
+  }
+
+  return 'unknown';
+}
+
 const COLUMNS: Record<Category, { key: string; label: string; title?: string }[]> = {
   passing: [
     { key: 'completions', label: 'CMP' },
@@ -102,7 +121,34 @@ export default function Stats() {
       const { data: rows, error } = await query;
 
       if (error) throw error;
-      return { players: (rows || []) as PlayerRow[] };
+
+      const groupedRows = new Map<string, PlayerRow>();
+      for (const row of (rows || []) as PlayerRow[]) {
+        const key = getPlayerAggregateKey(row.user_id, row.display_name);
+        const existing = groupedRows.get(key);
+
+        if (!existing) {
+          groupedRows.set(key, { ...row });
+          continue;
+        }
+
+        existing.completions = (existing.completions || 0) + (row.completions || 0);
+        existing.attempts = (existing.attempts || 0) + (row.attempts || 0);
+        existing.ints = (existing.ints || 0) + (row.ints || 0);
+        existing.sacked = (existing.sacked || 0) + (row.sacked || 0);
+        existing.carries = (existing.carries || 0) + (row.carries || 0);
+        existing.yards = (existing.yards || 0) + (row.yards || 0);
+        existing.tds = (existing.tds || 0) + (row.tds || 0);
+        existing.receptions = (existing.receptions || 0) + (row.receptions || 0);
+        existing.tackles = (existing.tackles || 0) + (row.tackles || 0);
+        existing.interceptions = (existing.interceptions || 0) + (row.interceptions || 0);
+        existing.sacks = (existing.sacks || 0) + (row.sacks || 0);
+        existing.display_name = row.display_name || existing.display_name;
+        existing.headshot_url = row.headshot_url || existing.headshot_url;
+        existing.team_name = row.team_name || existing.team_name;
+      }
+
+      return { players: Array.from(groupedRows.values()) };
     },
   });
 
@@ -225,7 +271,7 @@ export default function Stats() {
                 {players.map((player, i) => {
                   const team = fuzzyTeam(player.team_name);
                   return (
-                    <tr key={player.user_id} className="stats-row">
+                    <tr key={`${player.user_id}-${player.display_name}`} className="stats-row">
                       <td className="stats-td stats-td--rank">
                         <span className={`stats-rank-badge${i < 3 ? ' stats-rank-badge--top' : ''}`}>
                           {i + 1}

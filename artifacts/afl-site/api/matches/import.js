@@ -5,6 +5,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
 );
 
+const normalizeDisplayName = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const getPlayerIdentityAliases = (userId, displayName, category, season) => {
+  const aliases = [];
+  const parsedId = Number(userId);
+
+  if (Number.isFinite(parsedId) && parsedId > 0) {
+    aliases.push(`user:${parsedId}:${category}:${season}`);
+  }
+
+  const normalizedName = normalizeDisplayName(displayName);
+  if (normalizedName) {
+    aliases.push(`name:${normalizedName}:${category}:${season}`);
+  }
+
+  if (aliases.length === 0) {
+    aliases.push(`unknown:${category}:${season}`);
+  }
+
+  return aliases;
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -24,6 +46,7 @@ export default async function handler(req, res) {
     
     const statsRows = new Map();
     const playerDirectory = new Map();
+    const identityIndex = new Map();
 
     const createRow = (userId, displayName, teamName, headshotUrl, category, season) => ({
       user_id: userId,
@@ -45,17 +68,21 @@ export default async function handler(req, res) {
     });
 
     const getOrCreateStatsRow = (userId, displayName, teamName, headshotUrl, category, season) => {
-      const key = `${userId}:${category}:${season}`;
-      const existing = statsRows.get(key);
+      const aliases = getPlayerIdentityAliases(userId, displayName, category, season);
+      const existing = aliases.map((alias) => identityIndex.get(alias)).find(Boolean);
+
       if (existing) {
-        existing.display_name = displayName;
-        existing.headshot_url = headshotUrl;
-        existing.team_name = teamName;
+        existing.display_name = displayName || existing.display_name;
+        existing.headshot_url = headshotUrl || existing.headshot_url;
+        existing.team_name = teamName || existing.team_name;
+        aliases.forEach((alias) => identityIndex.set(alias, existing));
         return existing;
       }
 
       const row = createRow(userId, displayName, teamName, headshotUrl, category, season);
-      statsRows.set(key, row);
+      const rowKey = `row:${statsRows.size + 1}`;
+      statsRows.set(rowKey, row);
+      aliases.forEach((alias) => identityIndex.set(alias, row));
       return row;
     };
 
@@ -160,8 +187,16 @@ export default async function handler(req, res) {
         if (selectError) throw selectError;
 
         let mergedRow = { ...row };
-        if (existingRows && existingRows.length > 0) {
-          mergedRow = existingRows.reduce((acc, existing) => ({
+        const matchingRows = (existingRows || []).filter((existing) => {
+          const existingUserId = Number(existing.user_id);
+          const rowUserId = Number(row.user_id);
+          const sameUser = Number.isFinite(existingUserId) && Number.isFinite(rowUserId) && existingUserId > 0 && rowUserId > 0 && existingUserId === rowUserId;
+          const sameName = normalizeDisplayName(existing.display_name) && normalizeDisplayName(existing.display_name) === normalizeDisplayName(row.display_name);
+          return sameUser || sameName;
+        });
+
+        if (matchingRows.length > 0) {
+          mergedRow = matchingRows.reduce((acc, existing) => ({
             ...acc,
             display_name: row.display_name || acc.display_name || existing.display_name,
             headshot_url: row.headshot_url || acc.headshot_url || existing.headshot_url,
@@ -179,14 +214,28 @@ export default async function handler(req, res) {
           }), { ...row });
         }
 
-        const { error: deleteError } = await supabase
-          .from('player_stats')
-          .delete()
-          .eq('user_id', row.user_id)
-          .eq('category', row.category)
-          .eq('season', row.season);
+        for (const existing of matchingRows) {
+          const targetUserId = Number(existing.user_id);
+          if (Number.isFinite(targetUserId) && targetUserId > 0) {
+            const { error: deleteError } = await supabase
+              .from('player_stats')
+              .delete()
+              .eq('user_id', targetUserId)
+              .eq('category', row.category)
+              .eq('season', row.season);
 
-        if (deleteError) throw deleteError;
+            if (deleteError) throw deleteError;
+          } else {
+            const { error: deleteError } = await supabase
+              .from('player_stats')
+              .delete()
+              .eq('category', row.category)
+              .eq('season', row.season)
+              .eq('display_name', existing.display_name);
+
+            if (deleteError) throw deleteError;
+          }
+        }
 
         const { error: insertError } = await supabase.from('player_stats').insert(mergedRow);
         if (insertError) throw insertError;

@@ -36,6 +36,25 @@ function getNumericValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function normalizePlayerName(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getPlayerAggregateKey(userId: unknown, displayName: unknown, category: string, season: string) {
+  const normalizedName = normalizePlayerName(displayName);
+  const parsedId = Number(userId);
+
+  if (Number.isFinite(parsedId) && parsedId > 0) {
+    return `user:${parsedId}:${category}:${season}`;
+  }
+
+  if (normalizedName) {
+    return `name:${normalizedName}:${category}:${season}`;
+  }
+
+  return `unknown:${category}:${season}`;
+}
+
 function getCategoryScore(category: string, players: PlayerRow[]) {
   const safePlayers = players.filter((player) => Number.isFinite(Number(player.user_id)));
   const maxes: Record<string, number> = {};
@@ -48,7 +67,7 @@ function getCategoryScore(category: string, players: PlayerRow[]) {
   };
 
   for (const key of statKeys[category] ?? []) {
-    const values = safePlayers.map((player) => getNumericValue((player as Record<string, unknown>)[key]));
+    const values = safePlayers.map((player) => getNumericValue((player as unknown as Record<string, unknown>)[key]));
     maxes[key] = Math.max(...values, 0);
   }
 
@@ -57,7 +76,7 @@ function getCategoryScore(category: string, players: PlayerRow[]) {
   };
 
   for (const key of negativeKeys[category] ?? []) {
-    const values = safePlayers.map((player) => getNumericValue((player as Record<string, unknown>)[key]));
+    const values = safePlayers.map((player) => getNumericValue((player as unknown as Record<string, unknown>)[key]));
     maxes[key] = Math.max(...values, 0);
   }
 
@@ -110,7 +129,7 @@ async function fetchPlayerStats(category: string, season: string) {
     if (!Number.isFinite(userId)) continue;
 
     const normalizedSeason = String(row.season ?? '').trim().toLowerCase();
-    const key = `${userId}:${category}:${normalizedSeason}`;
+    const key = getPlayerAggregateKey(userId, row.display_name, category, normalizedSeason);
     const existing = groupedRows.get(key);
 
     const aggregated: PlayerRow = {
@@ -145,7 +164,9 @@ async function fetchPlayerStats(category: string, season: string) {
     existing.tackles = (existing.tackles || 0) + (aggregated.tackles || 0);
     existing.interceptions = (existing.interceptions || 0) + (aggregated.interceptions || 0);
     existing.sacks = (existing.sacks || 0) + (aggregated.sacks || 0);
-    existing.team_name = existing.team_name || aggregated.team_name;
+    existing.display_name = aggregated.display_name || existing.display_name;
+    existing.headshot_url = aggregated.headshot_url || existing.headshot_url;
+    existing.team_name = aggregated.team_name || existing.team_name;
   }
 
   return { players: Array.from(groupedRows.values()) };
