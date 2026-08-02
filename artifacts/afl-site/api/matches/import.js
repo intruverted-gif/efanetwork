@@ -25,8 +25,6 @@ export default async function handler(req, res) {
     const statsRows = new Map();
     const playerDirectory = new Map();
 
-    const existingStatsRows = new Map();
-
     const createRow = (userId, displayName, teamName, headshotUrl, category, season) => ({
       user_id: userId,
       display_name: displayName,
@@ -44,27 +42,7 @@ export default async function handler(req, res) {
       receptions: 0,
       tackles: 0,
       sacks: 0,
-      ints: 0,
     });
-
-    const mergeStats = (row, values) => {
-      if (!row) return values;
-      return {
-        ...row,
-        ...values,
-        completions: (Number(row.completions) || 0) + (Number(values.completions) || 0),
-        attempts: (Number(row.attempts) || 0) + (Number(values.attempts) || 0),
-        yards: (Number(row.yards) || 0) + (Number(values.yards) || 0),
-        tds: (Number(row.tds) || 0) + (Number(values.tds) || 0),
-        sacked: (Number(row.sacked) || 0) + (Number(values.sacked) || 0),
-        interceptions: (Number(row.interceptions) || 0) + (Number(values.interceptions) || 0),
-        carries: (Number(row.carries) || 0) + (Number(values.carries) || 0),
-        receptions: (Number(row.receptions) || 0) + (Number(values.receptions) || 0),
-        tackles: (Number(row.tackles) || 0) + (Number(values.tackles) || 0),
-        sacks: (Number(row.sacks) || 0) + (Number(values.sacks) || 0),
-        ints: (Number(row.ints) || 0) + (Number(values.ints) || 0),
-      };
-    };
 
     const getOrCreateStatsRow = (userId, displayName, teamName, headshotUrl, category, season) => {
       const key = `${userId}:${category}:${season}`;
@@ -124,7 +102,6 @@ export default async function handler(req, res) {
           row.tds += passTds;
           row.sacked += passSck;
           row.interceptions += passInts;
-          row.ints += passInts;
         }
 
         const rushCar = Number(rush.carries) || 0;
@@ -199,7 +176,6 @@ export default async function handler(req, res) {
             receptions: (Number(acc.receptions) || 0) + (Number(existing.receptions) || 0),
             tackles: (Number(acc.tackles) || 0) + (Number(existing.tackles) || 0),
             sacks: (Number(acc.sacks) || 0) + (Number(existing.sacks) || 0),
-            ints: (Number(acc.ints) || 0) + (Number(existing.ints) || 0),
           }), { ...row });
         }
 
